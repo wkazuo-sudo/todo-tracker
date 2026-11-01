@@ -457,6 +457,35 @@ export function SettingsPage({
         </label>
       </section>
       <section className="card">
+        <h2>Google Calendar</h2>
+        <p className="quiet">
+          In Google Calendar, open the settings for your calendar. Under Integrate calendar, copy the secret address in iCal format. The next seven days then show on Home, and you can attach notes to each meeting. The address stays on this Mac.
+        </p>
+        {settings.googleIcal ? (
+          <div className="chips">
+            <span className="chip selected">Connected</span>
+            <button type="button" className="chip" onClick={() => onValue("googleIcal", "")}>
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <form
+            className="add-person"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const field = event.currentTarget.elements.namedItem("calendar");
+              const value = field instanceof HTMLInputElement ? field.value.trim() : "";
+              if (value) onValue("googleIcal", value);
+            }}
+          >
+            <input name="calendar" placeholder="Paste the secret calendar address" aria-label="Google Calendar address" />
+            <button className="primary" type="submit">
+              Connect
+            </button>
+          </form>
+        )}
+      </section>
+      <section className="card">
         <h2>Outside the window</h2>
         <div className="chips">
           <button type="button" className="chip" onClick={onSay}>

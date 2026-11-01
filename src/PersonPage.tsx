@@ -520,6 +520,7 @@ function MeetingCard({
         <button type="button" className="chip" onClick={() => onMeeting(meeting, { pinned: !meeting.pinned })}>
           {meeting.pinned ? "Unpin this meeting" : "Pin this meeting"}
         </button>
+        {meeting.calendarUid && <span className="chip">Notes linked to this calendar meeting</span>}
         {meeting.sourceUrl && (
           <button type="button" className="chip" onClick={() => void openUrl(meeting.sourceUrl ?? "")}>
             Open the source

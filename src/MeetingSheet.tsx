@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import {
   addDays,
   findPersonByName,
+  personInTitle,
+  type AgendaEvent,
   formatDay,
   openTasksForPerson,
   readDateInTitle,
@@ -46,6 +48,7 @@ type Draft = {
   nextFocus: string;
   spanEnd: string;
   sourceUrl: string;
+  calendarUid: string;
   rows: Row[];
   markDoneIds: string[];
   guestIds: string[];
@@ -56,6 +59,8 @@ type Props = {
   data: Data;
   presetPersonId: string | null;
   presetDate?: string | null;
+  presetEvent?: AgendaEvent | null;
+  agenda?: AgendaEvent[];
   travelDates?: string[];
   busy: boolean;
   stayOpen: boolean;
@@ -117,6 +122,7 @@ function readDraft(): Draft | null {
       nextFocus: parsed.nextFocus ?? "",
       spanEnd: parsed.spanEnd ?? "",
       sourceUrl: parsed.sourceUrl ?? "",
+      calendarUid: parsed.calendarUid ?? "",
       rows: parsed.rows.map((row) => ({
         key: row.key || crypto.randomUUID(),
         title: row.title ?? "",
@@ -170,9 +176,35 @@ function initialDraft(
   presetPersonId: string | null,
   presetDate: string | null,
   travelDates: string[],
+  presetEvent: AgendaEvent | null,
 ): { draft: Draft; restored: boolean } {
   const preset = people.find((person) => person.id === presetPersonId) ?? null;
   const saved = readDraft();
+  if (presetEvent) {
+    return {
+      restored: false,
+      draft: {
+        personText: preset?.name ?? "",
+        personId: preset?.id ?? null,
+        title: presetEvent.title,
+        meetingDate: presetEvent.date,
+        note: "",
+        noteLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+        topicLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+        questionLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+        privateNote: "",
+        nextOn: "",
+        nextFocus: "",
+        spanEnd: "",
+        sourceUrl: presetEvent.url,
+        calendarUid: presetEvent.id,
+        rows: [blankRow(), blankRow()],
+        markDoneIds: [],
+        guestIds: [],
+        decisionText: "",
+      },
+    };
+  }
   if (saved && hasContent(saved, preset?.name ?? "")) {
     const rows = saved.rows.length > 0 ? saved.rows : [blankRow(), blankRow()];
     return { draft: { ...saved, rows }, restored: true };
@@ -195,6 +227,7 @@ function initialDraft(
       nextFocus: "",
       spanEnd: "",
       sourceUrl: "",
+      calendarUid: "",
       rows: [blankRow(), blankRow()],
       markDoneIds: [],
       guestIds: [],
@@ -207,6 +240,8 @@ export function MeetingSheet({
   data,
   presetPersonId,
   presetDate = null,
+  presetEvent = null,
+  agenda = [],
   travelDates = [],
   busy,
   stayOpen,
@@ -217,10 +252,10 @@ export function MeetingSheet({
   onDeleteTemplate,
 }: Props) {
   const today = todayISO();
-  const starting = initialDraft(data.people, presetPersonId, presetDate, travelDates);
+  const starting = initialDraft(data.people, presetPersonId, presetDate, travelDates, presetEvent);
   const [draft, setDraft] = useState<Draft>(starting.draft);
   const [restored] = useState(starting.restored);
-  const [showRest, setShowRest] = useState(starting.restored);
+  const [showRest, setShowRest] = useState(starting.restored || Boolean(presetEvent));
   const [speechNote, setSpeechNote] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -362,6 +397,7 @@ export function MeetingSheet({
         nextFocus: draft.nextFocus,
         spanEnd: draft.spanEnd || null,
         sourceUrl: draft.sourceUrl,
+        calendarUid: draft.calendarUid,
         tasks,
         markDoneIds: draft.markDoneIds.filter((taskId) => openTasks.some((task) => task.id === taskId)),
         guestIds: draft.guestIds,
@@ -441,7 +477,35 @@ export function MeetingSheet({
           }
         }}
       >
-        <h2>New meeting</h2>
+        <h2>{draft.calendarUid ? draft.title || "Meeting notes" : "New meeting"}</h2>
+        {agenda.length > 0 && (
+          <div className="field">
+            <span>Meetings this week</span>
+            <div className="chips">
+              {agenda.map((event) => (
+                <button
+                  key={`${event.id}-${event.date}`}
+                  type="button"
+                  className={draft.calendarUid === event.id && draft.meetingDate === event.date ? "chip selected" : "chip"}
+                  onClick={() => {
+                    const person = personInTitle(data.people, event.title);
+                    patch({
+                      title: event.title,
+                      meetingDate: event.date,
+                      sourceUrl: event.url,
+                      calendarUid: event.id,
+                      ...(person ? { personText: person.name, personId: person.id } : {}),
+                    });
+                    setShowRest(true);
+                  }}
+                >
+                  {event.time ? `${event.time} ` : ""}
+                  {event.date === today ? "Today" : formatDay(event.date, today)} · {event.title}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {restored && <p className="hint">Picking up where you left off.</p>}
         {!showRest && (
           <p className="hint">

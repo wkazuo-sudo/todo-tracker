@@ -8,6 +8,7 @@ import {
   fridayThisWeek,
   isOnBoard,
   endOfWeek,
+  agendaFromIcs,
   fullestDayLine,
   groupOpen,
   lastMetMeeting,
@@ -268,4 +269,43 @@ test("someday and the catch pile stay off the home list", () => {
     tasksForHome(data, sunday).map((item) => item.id),
     ["real"],
   );
+});
+
+test("a calendar week keeps this week's meetings and drops cancelled ones", () => {
+  const text = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "UID:one@x",
+    "DTSTART:20261103T150000",
+    "SUMMARY:Gui sync",
+    "URL:https://meet.example/one",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:gone@x",
+    "STATUS:CANCELLED",
+    "DTSTART:20261103T090000",
+    "SUMMARY:Cancelled",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:later@x",
+    "DTSTART:20261201T090000",
+    "SUMMARY:Far away",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:weekly@x",
+    "DTSTART;VALUE=DATE:20261102",
+    "RRULE:FREQ=WEEKLY;BYDAY=MO",
+    "SUMMARY:Monday",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\n");
+  const events = agendaFromIcs(text, sunday);
+  assert.equal(events.some((event) => event.title === "Cancelled"), false);
+  assert.equal(events.some((event) => event.title === "Far away"), false);
+  const gui = events.find((event) => event.title === "Gui sync");
+  assert.equal(gui?.date, "2026-11-03");
+  assert.equal(gui?.time, "15:00");
+  assert.equal(gui?.id, "one@x");
+  assert.equal(gui?.url, "https://meet.example/one");
+  assert.equal(events.filter((event) => event.title === "Monday").map((event) => event.date).join(","), "2026-11-02");
 });

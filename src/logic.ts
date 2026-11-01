@@ -38,6 +38,7 @@ export type Meeting = {
   nextFocus?: string;
   spanEnd?: string | null;
   sourceUrl?: string;
+  calendarUid?: string;
   pinned?: boolean;
 };
 
@@ -132,6 +133,7 @@ export type Settings = {
   readyHour: string;
   weekdayOnly: boolean;
   onlyPersonId: string | null;
+  googleIcal: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -151,6 +153,7 @@ export const DEFAULT_SETTINGS: Settings = {
   readyHour: "09:00",
   weekdayOnly: false,
   onlyPersonId: null,
+  googleIcal: "",
 };
 
 export type Data = {
@@ -826,6 +829,101 @@ export function meetingText(data: Data, meetingId: string, today: string): strin
     lines.push(`- ${task.title}${task.dueOn ? ` · due ${formatDay(task.dueOn, today)}` : ""}`);
   }
   return lines.join("\n").trim() + "\n";
+}
+
+export type AgendaEvent = { id: string; date: string; time: string; title: string; url: string };
+
+const AGENDA_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+function unfoldCalendar(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
+}
+
+function calendarText(value: string): string {
+  return value.replace(/\\n/gi, " ").replace(/\\,/g, ",").replace(/\\;/g, ";").trim();
+}
+
+function whenOf(line: string): { date: string; time: string } | null {
+  const value = line.split(":").pop() ?? "";
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?/);
+  if (!match) return null;
+  const date = `${match[1]}-${match[2]}-${match[3]}`;
+  const time = match[4] ? `${match[4]}:${match[5]}` : "";
+  if (value.endsWith("Z") && match[4]) {
+    const instant = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]), Number(match[5])));
+    const localDate = `${instant.getFullYear()}-${String(instant.getMonth() + 1).padStart(2, "0")}-${String(instant.getDate()).padStart(2, "0")}`;
+    const localTime = `${String(instant.getHours()).padStart(2, "0")}:${String(instant.getMinutes()).padStart(2, "0")}`;
+    return { date: localDate, time: localTime };
+  }
+  return { date, time };
+}
+
+function datesForRule(start: string, rule: string, today: string, end: string): string[] {
+  const parts = Object.fromEntries(rule.split(";").map((part) => {
+    const [key, value] = part.split("=");
+    return [key, value ?? ""];
+  }));
+  const interval = Math.max(1, Number(parts.INTERVAL || 1));
+  const byday = parts.BYDAY ? parts.BYDAY.split(",") : [];
+  const dates: string[] = [];
+  let cursor = today;
+  while (cursor <= end && dates.length < 14) {
+    const gap = daysBetween(start, cursor);
+    if (gap >= 0) {
+      if (parts.FREQ === "DAILY" && gap % interval === 0) dates.push(cursor);
+      if (parts.FREQ === "WEEKLY") {
+        const code = AGENDA_DAYS[parseISODate(cursor).getDay()];
+        const week = Math.floor(gap / 7);
+        const dayOk = byday.length === 0 ? gap % (7 * interval) === 0 : byday.includes(code) && week % interval === 0;
+        if (dayOk) dates.push(cursor);
+      }
+    }
+    cursor = addDays(cursor, 1);
+  }
+  if (parts.FREQ !== "DAILY" && parts.FREQ !== "WEEKLY" && start >= today && start <= end) dates.push(start);
+  return dates;
+}
+
+export function agendaFromIcs(text: string, today: string): AgendaEvent[] {
+  const end = addDays(today, 6);
+  const events: AgendaEvent[] = [];
+  for (const block of unfoldCalendar(text).split("BEGIN:VEVENT").slice(1)) {
+    const body = block.split("END:VEVENT")[0] ?? "";
+    const lines = body.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (lines.some((line) => line.startsWith("STATUS:CANCELLED"))) continue;
+    const startLine = lines.find((line) => line.startsWith("DTSTART"));
+    if (!startLine) continue;
+    const when = whenOf(startLine);
+    if (!when) continue;
+    const summary = lines.find((line) => line.startsWith("SUMMARY"));
+    const title = calendarText(summary?.split(":").slice(1).join(":") ?? "") || "Meeting";
+    const uid = calendarText(lines.find((line) => line.startsWith("UID"))?.split(":").slice(1).join(":") ?? "");
+    const url = calendarText(lines.find((line) => line.startsWith("URL:"))?.slice(4) ?? "");
+    const rule = lines.find((line) => line.startsWith("RRULE:"))?.slice(6) ?? "";
+    const dates = rule ? datesForRule(when.date, rule, today, end) : [when.date];
+    for (const date of dates) {
+      if (date < today || date > end) continue;
+      events.push({ id: uid || `${date}:${title}`, date, time: when.time, title, url });
+    }
+  }
+  const seen = new Set<string>();
+  return events
+    .filter((event) => {
+      const key = `${event.id}|${event.date}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+}
+
+export function personInTitle(people: Person[], title: string): Person | null {
+  const hay = title.toLowerCase();
+  return (
+    people
+      .filter((person) => person.name.trim().length > 1 && hay.includes(person.name.trim().toLowerCase()))
+      .sort((a, b) => b.name.length - a.name.length)[0] ?? null
+  );
 }
 
 export function shortcutList(): { keys: string; does: string }[] {

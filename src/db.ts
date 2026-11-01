@@ -107,6 +107,7 @@ type MeetingRow = {
   next_focus: string;
   span_end: string | null;
   source_url: string;
+  calendar_uid: string;
   pinned: number;
 };
 type TaskRow = {
@@ -235,6 +236,7 @@ function readSettings(rows: { key: string; value: string }[]): Settings {
     readyHour: get("readyHour") || "09:00",
     weekdayOnly: get("weekdayOnly") === "1",
     onlyPersonId: get("onlyPersonId") || null,
+    googleIcal: get("googleIcal") || "",
   };
 }
 
@@ -263,7 +265,7 @@ export async function loadAll(db: Database): Promise<Data> {
     ),
     db.select<Company[]>("SELECT id, name FROM companies"),
     db.select<MeetingRow[]>(
-      "SELECT id, person_id, title, meeting_date, note, created_at, private_note, next_on, next_focus, span_end, source_url, pinned FROM meetings",
+      "SELECT id, person_id, title, meeting_date, note, created_at, private_note, next_on, next_focus, span_end, source_url, calendar_uid, pinned FROM meetings",
     ),
     db.select<{ meeting_id: string; person_id: string }[]>("SELECT meeting_id, person_id FROM meeting_people"),
     db.select<TaskRow[]>(
@@ -319,6 +321,7 @@ export async function loadAll(db: Database): Promise<Data> {
     nextFocus: row.next_focus ?? "",
     spanEnd: row.span_end,
     sourceUrl: row.source_url ?? "",
+    calendarUid: row.calendar_uid ?? "",
     pinned: bit(row.pinned),
   }));
 
@@ -499,6 +502,7 @@ export type SaveMeetingInput = {
   nextFocus?: string;
   spanEnd?: string | null;
   sourceUrl?: string;
+  calendarUid?: string;
 };
 
 export type SaveMeetingResult = {
@@ -528,11 +532,16 @@ export async function saveMeeting(db: Database, input: SaveMeetingInput): Promis
   }
   if (!personId) throw new Error("Choose a person for this meeting.");
 
-  const meetingId = uid();
-  await db.execute(
-    "INSERT INTO meetings (id, person_id, title, meeting_date, note, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
-    [meetingId, personId, input.title.trim(), input.meetingDate, input.note.trim(), now()],
-  );
+  const prior = (input.calendarUid ?? "").trim()
+    ? existing.meetings.find((item) => item.calendarUid === input.calendarUid)
+    : undefined;
+  const meetingId = prior?.id ?? uid();
+  if (!prior) {
+    await db.execute(
+      "INSERT INTO meetings (id, person_id, title, meeting_date, note, created_at) VALUES ($1, $2, $3, $4, $5, $6)",
+      [meetingId, personId, input.title.trim(), input.meetingDate, input.note.trim(), now()],
+    );
+  }
   for (const guestId of input.guestIds) {
     if (guestId && guestId !== personId) {
       await db.execute("INSERT INTO meeting_people (meeting_id, person_id) VALUES ($1, $2)", [meetingId, guestId]);
@@ -604,19 +613,37 @@ export async function saveMeeting(db: Database, input: SaveMeetingInput): Promis
     taskCount += 1;
   }
 
+  const oldNoteLines = prior
+    ? existing.bullets.filter((bullet) => bullet.ownerId === meetingId && bullet.kind === "note")
+    : [];
   const noteText = (input.noteLines ?? [])
     .map((line) => `${"  ".repeat(line.indent)}${line.text.trim()}`)
     .filter((line) => line.trim())
     .join("\n");
-  if (noteText) {
-    await db.execute("UPDATE meetings SET note = $1 WHERE id = $2", [noteText, meetingId]);
+  const joinedNote = [prior?.note ?? "", noteText].filter((line) => line.trim()).join("\n");
+  if (joinedNote) {
+    await db.execute("UPDATE meetings SET note = $1 WHERE id = $2", [joinedNote, meetingId]);
   }
-  await replaceBullets(db, "meeting", meetingId, "note", input.noteLines ?? []);
+  await replaceBullets(
+    db,
+    "meeting",
+    meetingId,
+    "note",
+    [...oldNoteLines.map((bullet) => ({ text: bullet.body, indent: bullet.indent })), ...(input.noteLines ?? [])],
+  );
   await replaceBullets(db, "meeting", meetingId, "topic", input.topics ?? []);
   await replaceBullets(db, "meeting", meetingId, "question", input.questions ?? []);
   await db.execute(
-    "UPDATE meetings SET private_note = $1, next_on = $2, next_focus = $3, span_end = $4, source_url = $5 WHERE id = $6",
-    [input.privateNote ?? "", input.nextOn ?? null, input.nextFocus ?? "", input.spanEnd ?? null, input.sourceUrl ?? "", meetingId],
+    "UPDATE meetings SET private_note = $1, next_on = $2, next_focus = $3, span_end = $4, source_url = $5, calendar_uid = $6 WHERE id = $7",
+    [
+      input.privateNote ?? "",
+      input.nextOn ?? null,
+      input.nextFocus ?? "",
+      input.spanEnd ?? null,
+      input.sourceUrl ?? prior?.sourceUrl ?? "",
+      input.calendarUid ?? prior?.calendarUid ?? "",
+      meetingId,
+    ],
   );
   await db.execute(
     "UPDATE tasks SET hide_until = NULL, wake = '', returned = 1 WHERE wake = 'meeting' AND requester_id = $1",
@@ -1112,8 +1139,17 @@ async function insertMeeting(db: Database, meeting: Meeting): Promise<void> {
     await db.execute("INSERT INTO meeting_people (meeting_id, person_id) VALUES ($1, $2)", [meeting.id, guestId]);
   }
   await db.execute(
-    "UPDATE meetings SET private_note=$1, next_on=$2, next_focus=$3, span_end=$4, source_url=$5, pinned=$6 WHERE id=$7",
-    [meeting.privateNote ?? "", meeting.nextOn ?? null, meeting.nextFocus ?? "", meeting.spanEnd ?? null, meeting.sourceUrl ?? "", meeting.pinned ? 1 : 0, meeting.id],
+    "UPDATE meetings SET private_note=$1, next_on=$2, next_focus=$3, span_end=$4, source_url=$5, calendar_uid=$6, pinned=$7 WHERE id=$8",
+    [
+      meeting.privateNote ?? "",
+      meeting.nextOn ?? null,
+      meeting.nextFocus ?? "",
+      meeting.spanEnd ?? null,
+      meeting.sourceUrl ?? "",
+      meeting.calendarUid ?? "",
+      meeting.pinned ? 1 : 0,
+      meeting.id,
+    ],
   );
 }
 
@@ -1326,6 +1362,7 @@ export async function replaceAll(db: Database, data: Data): Promise<void> {
     ["readyHour", data.settings.readyHour],
     ["weekdayOnly", data.settings.weekdayOnly ? "1" : "0"],
     ["onlyPersonId", data.settings.onlyPersonId ?? ""],
+    ["googleIcal", data.settings.googleIcal ?? ""],
   ];
   for (const bullet of data.bullets ?? []) {
     await db.execute(

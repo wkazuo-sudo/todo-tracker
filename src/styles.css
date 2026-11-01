@@ -844,7 +844,16 @@ button { cursor: pointer; }
 .color-dot { width: 14px; height: 14px; border: 0; margin-right: 8px; vertical-align: middle; }
 .color-dot.selected { outline: 2px solid var(--ink); }
 
-.day-event { display: block; color: var(--faint); font-size: 11px; }
+.day-event {
+  display: block;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: left;
+}
 
 .cal {
   display: grid;

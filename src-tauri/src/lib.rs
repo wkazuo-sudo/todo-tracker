@@ -63,6 +63,34 @@ fn set_menu_count(app: tauri::AppHandle, text: String) -> Result<(), String> {
     tray.set_tooltip(Some(text)).map_err(|err| err.to_string())
 }
 
+fn google_calendar_url(url: &str) -> Result<(), String> {
+    let clean = url.trim();
+    if clean.len() > 2000 || clean.contains(' ') || clean.contains('\n') || clean.contains('\r') {
+        return Err("That calendar address is not usable.".into());
+    }
+    if !clean.starts_with("https://calendar.google.com/calendar/ical/") || !clean.contains(".ics") {
+        return Err("Use the secret iCal address from Google Calendar.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn fetch_google_calendar(url: String) -> Result<String, String> {
+    google_calendar_url(&url)?;
+    let output = Command::new("curl")
+        .args(["-fsS", "--max-redirs", "0", "--max-time", "20", "-A", "To-Do Tracker", url.trim()])
+        .output()
+        .map_err(|err| err.to_string())?;
+    if !output.status.success() {
+        return Err("Google Calendar did not answer.".into());
+    }
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !text.contains("BEGIN:VCALENDAR") {
+        return Err("That address did not return a calendar.".into());
+    }
+    Ok(text)
+}
+
 #[tauri::command]
 fn calendar_week() -> Vec<CalEvent> {
     let script = r#"
@@ -501,6 +529,11 @@ pub fn run() {
                 body TEXT NOT NULL
             );",
         ),
+        up(
+            74,
+            "meetings_calendar_uid",
+            "ALTER TABLE meetings ADD COLUMN calendar_uid TEXT NOT NULL DEFAULT '';",
+        ),
     ];
 
     tauri::Builder::default()
@@ -519,6 +552,7 @@ pub fn run() {
             write_spotlight,
             say_text,
             calendar_week,
+            fetch_google_calendar,
             backup_database,
             write_text_file,
             copy_attachment

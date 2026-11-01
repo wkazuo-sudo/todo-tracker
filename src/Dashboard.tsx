@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent } from "react";
 import type { TaskAction } from "./db";
 import { TaskRow } from "./TaskRow";
 import { BarChart } from "./ui";
+import type { CalEvent } from "./native";
 import {
   bucketLabel,
   checkInsDue,
@@ -36,7 +37,11 @@ import {
 type Props = {
   data: Data;
   today: string;
-  events: { date: string; title: string }[];
+  events: CalEvent[];
+  googleConnected: boolean;
+  agendaError: string;
+  onOpenAgenda: (event: CalEvent) => void;
+  onOpenSettings: () => void;
   onOpenTask: (task: Task) => void;
   onOpenPerson: (personId: string) => void;
   onLog: (personId?: string) => void;
@@ -74,6 +79,10 @@ export function Dashboard({
   data,
   today,
   events,
+  googleConnected,
+  agendaError,
+  onOpenAgenda,
+  onOpenSettings,
   onOpenTask,
   onOpenPerson,
   onLog,
@@ -364,6 +373,35 @@ export function Dashboard({
 
       {heavy && <p className="hint">{heavy}</p>}
 
+      <section className="card">
+        <h2>Meetings this week</h2>
+        {!googleConnected && <p className="quiet">Connect Google Calendar in Settings. The next seven days show up here, and each one can hold its notes.</p>}
+        {googleConnected && agendaError && <p className="form-error">{agendaError}</p>}
+        {googleConnected && !agendaError && events.length === 0 && <p className="quiet">Nothing is on the calendar for the next seven days.</p>}
+        {!googleConnected && (
+          <button type="button" className="primary" onClick={onOpenSettings}>
+            Connect Google Calendar
+          </button>
+        )}
+        <div className="people-list">
+          {events.map((event) => {
+            const linked = data.meetings.some((meeting) => meeting.calendarUid && meeting.calendarUid === event.id);
+            return (
+              <button key={`${event.id}-${event.date}`} className="person-row" onClick={() => onOpenAgenda(event)}>
+                <span className="person-name">
+                  {event.time ? `${event.time} · ` : ""}
+                  {event.title}
+                </span>
+                <span className="person-meta">
+                  {event.date === today ? "Today" : formatDay(event.date, today)}
+                  {linked ? " · Notes linked" : " · Write notes"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       <section className="week">
         <h2 className="section-label">The next seven days</h2>
         <div className="week-strip">
@@ -391,9 +429,17 @@ export function Dashboard({
                 </span>
                 <span className="day-meta">{dayMeta(day.tasks, day.meetings)}</span>
                 {dayEvents.slice(0, 2).map((event) => (
-                  <span key={event.title} className="day-event">
+                  <button
+                    key={`${event.id}-${event.date}`}
+                    type="button"
+                    className="day-event"
+                    onClick={(click) => {
+                      click.stopPropagation();
+                      onOpenAgenda(event);
+                    }}
+                  >
                     {event.title}
-                  </span>
+                  </button>
                 ))}
               </div>
             );

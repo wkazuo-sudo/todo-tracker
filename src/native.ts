@@ -9,7 +9,7 @@ import {
   sendNotification,
 } from "@tauri-apps/plugin-notification";
 
-export type CalEvent = { date: string; title: string };
+export type CalEvent = { id: string; date: string; time: string; title: string; url: string };
 
 export async function setTrayMenu(lines: { id: string; label: string }[]): Promise<void> {
   try {
@@ -45,10 +45,21 @@ export async function setMenuCount(text: string): Promise<void> {
 
 export async function loadCalendar(): Promise<CalEvent[]> {
   try {
-    return await invoke<CalEvent[]>("calendar_week");
+    const rows = await invoke<{ date: string; title: string }[]>("calendar_week");
+    return rows.map((row) => ({
+      id: `mac:${row.date}:${row.title}`,
+      date: row.date,
+      time: "",
+      title: row.title,
+      url: "",
+    }));
   } catch {
     return [];
   }
+}
+
+export async function fetchGoogleCalendar(url: string): Promise<string> {
+  return await invoke<string>("fetch_google_calendar", { url });
 }
 
 export async function backupNow(name: string): Promise<string> {

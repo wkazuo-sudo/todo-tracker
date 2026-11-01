@@ -40,10 +40,12 @@ import {
 } from "./db";
 import {
   addDays,
+  agendaFromIcs,
   boardCsv,
   boardText,
   groupOpen,
   meetingText,
+  personInTitle,
   personOpenText,
   savedLine,
   todayISO,
@@ -61,7 +63,9 @@ import { BoxesPage, DayPage, SomedayPage } from "./tools";
 import { SearchResults } from "./SearchResults";
 import {
   backupNow,
+  fetchGoogleCalendar,
   loadCalendar,
+  type CalEvent,
   notifyDue,
   onLogMeeting,
   onShowPerson,
@@ -78,7 +82,6 @@ import {
   setTrayMenu,
   watchClose,
   writeSpotlight,
-  type CalEvent,
 } from "./native";
 import type Database from "@tauri-apps/plugin-sql";
 
@@ -114,6 +117,8 @@ export default function App() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [today, setToday] = useState(todayISO);
   const [events, setEvents] = useState<CalEvent[]>([]);
+  const [agendaError, setAgendaError] = useState("");
+  const [agendaPick, setAgendaPick] = useState<CalEvent | null>(null);
   const [palette, setPalette] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
@@ -243,8 +248,29 @@ export default function App() {
   }, [data, today]);
 
   useEffect(() => {
-    void loadCalendar().then(setEvents);
-  }, []);
+    const url = data?.settings.googleIcal ?? "";
+    let gone = false;
+    void (async () => {
+      const mac = await loadCalendar();
+      let google: CalEvent[] = [];
+      if (url) {
+        try {
+          google = agendaFromIcs(await fetchGoogleCalendar(url), todayISO());
+          if (!gone) setAgendaError("");
+        } catch (caught) {
+          if (!gone) setAgendaError(caught instanceof Error ? caught.message : "Google Calendar did not answer.");
+        }
+      } else if (!gone) {
+        setAgendaError("");
+      }
+      if (gone) return;
+      const seen = new Set(google.map((event) => `${event.date}|${event.title.toLowerCase()}`));
+      setEvents([...google, ...mac.filter((event) => !seen.has(`${event.date}|${event.title.toLowerCase()}`))]);
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [data?.settings.googleIcal]);
 
   useEffect(() => {
     const database = db;
@@ -277,7 +303,8 @@ export default function App() {
     if (!data.people.some((person) => person.id === screen.personId)) setScreen({ name: "home" });
   }, [data, screen]);
 
-  const openSheet = useCallback((personId: string | null, date?: string) => {
+  const openSheet = useCallback((personId: string | null, date?: string, event?: CalEvent | null) => {
+    setAgendaPick(event ?? null);
     setSheetPersonId(personId);
     setSheetDate(date ?? null);
     setSheetOpen(true);
@@ -600,11 +627,24 @@ export default function App() {
             />
           )}
           {data && !searching && screen.name === "home" && (
-            <Dashboard
-              data={data}
-              today={today}
-              events={events}
-              onOpenTask={openTask}
+          <Dashboard
+            data={data}
+            today={today}
+            events={events}
+            googleConnected={Boolean(data.settings.googleIcal)}
+            agendaError={agendaError}
+            onOpenAgenda={(event) => {
+              const linked = data.meetings.find((meeting) => meeting.calendarUid && meeting.calendarUid === event.id);
+              if (linked) {
+                setQuery("");
+                setScreen({ name: "person", personId: linked.personId, meetingId: linked.id });
+                return;
+              }
+              const person = personInTitle(data.people, event.title);
+              openSheet(person?.id ?? null, event.date, event);
+            }}
+            onOpenSettings={() => setScreen({ name: "settings" })}
+            onOpenTask={openTask}
               onOpenPerson={(id) => setScreen({ name: "person", personId: id })}
               onLog={(id) => openSheet(id ?? null)}
               onOpenDay={(date) => openSheet(null, date)}
@@ -786,6 +826,8 @@ export default function App() {
           data={data}
           presetPersonId={sheetPersonId}
           presetDate={sheetDate}
+          presetEvent={agendaPick}
+          agenda={events}
           travelDates={events.filter((item) => /travel|offsite|flight|ooo/i.test(item.title)).map((item) => item.date)}
           busy={busy}
           stayOpen={data.settings.keepSheetOpen}
