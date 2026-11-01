@@ -1,4 +1,5 @@
-export type TaskStatus = "open" | "in_progress" | "waiting" | "done" | "set_aside";
+export type TaskStatus = "open" | "in_progress" | "waiting" | "done" | "set_aside" | "void";
+export type Owner = "mine" | "theirs";
 export type Priority = "none" | "low" | "medium" | "high";
 export type RepeatRule = "daily" | "weekly" | "monthly" | null;
 
@@ -11,6 +12,15 @@ export type Person = {
   companyId: string | null;
   checkInOn: string | null;
   cadenceDays: number | null;
+  paused?: boolean;
+  household?: string;
+  metHow?: string;
+  starred?: boolean;
+  timezone?: string;
+  place?: string;
+  eventGroup?: string;
+  promiseOn?: string | null;
+  sequential?: boolean;
 };
 
 export type Company = { id: string; name: string };
@@ -23,6 +33,12 @@ export type Meeting = {
   note: string;
   createdAt: string;
   guestIds: string[];
+  privateNote?: string;
+  nextOn?: string | null;
+  nextFocus?: string;
+  spanEnd?: string | null;
+  sourceUrl?: string;
+  pinned?: boolean;
 };
 
 export type Task = {
@@ -45,11 +61,47 @@ export type Task = {
   remind: boolean;
   updatedAt: string;
   tagIds: string[];
+  doOn?: string | null;
+  hideUntil?: string | null;
+  someday?: boolean;
+  sectionId?: string | null;
+  owner?: Owner;
+  clockTime?: string;
+  durationMin?: number;
+  remindTime?: string;
+  countDone?: number;
+  countGoal?: number;
+  blockedBy?: string | null;
+  spanEnd?: string | null;
+  sourceUrl?: string;
+  indent?: number;
+  wake?: "" | "open" | "meeting" | "weekday";
+  folded?: boolean;
+  sourceLine?: string;
+  unfiled?: boolean;
+  returned?: boolean;
+  spentMin?: number;
 };
 
 export type CheckItem = { id: string; taskId: string; title: string; done: boolean; position: number };
 export type Tag = { id: string; name: string };
-export type Decision = { id: string; meetingId: string; body: string; createdAt: string };
+export type Decision = { id: string; meetingId: string; body: string; createdAt: string; why?: string };
+export type Bullet = {
+  id: string;
+  ownerKind: string;
+  ownerId: string;
+  kind: string;
+  body: string;
+  indent: number;
+  position: number;
+  done: boolean;
+  folded: boolean;
+};
+export type Section = { id: string; personId: string; name: string; position: number };
+export type LifeDate = { id: string; personId: string; label: string; onDate: string };
+export type Gift = { id: string; personId: string; body: string; given: boolean };
+export type AskLater = { id: string; personId: string; body: string; onDate: string; done: boolean };
+export type DayLog = { id: string; onDate: string; kind: string; body: string };
 export type Activity = { id: string; taskId: string | null; kind: string; detail: string; createdAt: string };
 export type Attachment = {
   id: string;
@@ -72,6 +124,14 @@ export type Settings = {
   morningDate: string | null;
   backupPath: string;
   sortClosest: boolean;
+  awayFrom: string | null;
+  awayUntil: string | null;
+  pingHour: string;
+  weekHours: number;
+  contrast: boolean;
+  readyHour: string;
+  weekdayOnly: boolean;
+  onlyPersonId: string | null;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -83,6 +143,14 @@ export const DEFAULT_SETTINGS: Settings = {
   morningDate: null,
   backupPath: "",
   sortClosest: false,
+  awayFrom: null,
+  awayUntil: null,
+  pingHour: "09:00",
+  weekHours: 0,
+  contrast: false,
+  readyHour: "09:00",
+  weekdayOnly: false,
+  onlyPersonId: null,
 };
 
 export type Data = {
@@ -99,6 +167,12 @@ export type Data = {
   views: SavedView[];
   removed: RemovedPerson[];
   settings: Settings;
+  bullets: Bullet[];
+  sections: Section[];
+  lifeDates: LifeDate[];
+  gifts: Gift[];
+  asks: AskLater[];
+  logs: DayLog[];
 };
 
 export type Bucket = "overdue" | "today" | "evening" | "this_week" | "later" | "none";
@@ -176,12 +250,78 @@ export function isActive(task: Task): boolean {
   return task.status === "open" || task.status === "in_progress";
 }
 
-export function isOnBoard(task: Task): boolean {
+export function isOnBoard(task: Task, today = todayISO()): boolean {
+  if (task.status === "void" || task.someday || task.unfiled || task.returned) return false;
+  if (task.wake === "meeting" || task.wake === "open") return false;
+  if (task.hideUntil && task.hideUntil > today) return false;
   return isActive(task) && !task.parentId;
 }
 
+export function fridayThisWeek(today: string): string {
+  const friday = addDays(startOfWeek(today), 4);
+  return friday < today ? addDays(friday, 7) : friday;
+}
+
+export function duePresets(today: string): { id: string; label: string; date: string }[] {
+  return [
+    { id: "eod", label: "EOD", date: today },
+    { id: "tomorrow", label: "Tomorrow", date: addDays(today, 1) },
+    { id: "two", label: "In 2 Days", date: addDays(today, 2) },
+    { id: "eow", label: "EOW", date: fridayThisWeek(today) },
+    { id: "next", label: "Next Week", date: addDays(today, 7) },
+  ];
+}
+
+export function tasksForHome(data: Data, today: string): Task[] {
+  const paused = new Set(data.people.filter((person) => person.paused).map((person) => person.id));
+  const away =
+    Boolean(data.settings.awayFrom && data.settings.awayUntil) &&
+    today >= (data.settings.awayFrom ?? "") &&
+    today <= (data.settings.awayUntil ?? "");
+  let tasks = data.tasks.filter((task) => isOnBoard(task, today) && !paused.has(task.requesterId));
+  if (data.settings.onlyPersonId) tasks = tasks.filter((task) => task.requesterId === data.settings.onlyPersonId);
+  if (away) tasks = tasks.filter((task) => !task.dueOn || task.dueOn >= today);
+  const sequential = new Set(data.people.filter((person) => person.sequential).map((person) => person.id));
+  const keep = new Set<string>();
+  for (const personId of sequential) {
+    const next = tasks
+      .filter((task) => task.requesterId === personId)
+      .sort((a, b) => (a.dueOn ?? "9999").localeCompare(b.dueOn ?? "9999") || a.createdAt.localeCompare(b.createdAt))[0];
+    if (next) keep.add(next.id);
+  }
+  tasks = tasks.filter((task) => !sequential.has(task.requesterId) || keep.has(task.id));
+  if (data.settings.weekdayOnly) {
+    tasks = tasks.map((task) => {
+      if (!task.dueOn) return task;
+      const day = parseISODate(task.dueOn).getDay();
+      if (day === 0 || day === 6) return { ...task, dueOn: nextMonday(task.dueOn === today ? today : task.dueOn) };
+      return task;
+    });
+  }
+  return tasks;
+}
+
+export function statusBars(tasks: Task[]): { label: string; count: number }[] {
+  const count = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
+  return [
+    { label: "Open", count: count("open") },
+    { label: "Doing", count: count("in_progress") },
+    { label: "Waiting", count: count("waiting") },
+    { label: "Done", count: count("done") },
+  ];
+}
+
+export function boxOf(task: Task, today: string, nextMeet: string | null): number {
+  const soon = Boolean((task.dueOn && task.dueOn <= addDays(today, 2)) || (nextMeet && nextMeet <= addDays(today, 3)));
+  const cares = task.priority === "high" || task.priority === "medium";
+  if (cares && soon) return 0;
+  if (cares) return 1;
+  if (soon) return 2;
+  return 3;
+}
+
 export function bucketFor(task: Task, today: string): Bucket | null {
-  if (!isOnBoard(task)) return null;
+  if (!isOnBoard(task, today)) return null;
   if (task.dueOn && task.dueOn < today) return "overdue";
   if (task.evening && (task.dueOn === today || !task.dueOn)) return "evening";
   if (!task.dueOn) return "none";
@@ -346,6 +486,7 @@ export function tasksForMeeting(
     waiting: 2,
     set_aside: 3,
     done: 4,
+    void: 5,
   };
   const doneRatio = (task: Task) => {
     const rows = (options?.checks ?? []).filter((item) => item.taskId === task.id);
@@ -576,7 +717,14 @@ export function tasksForView(
   });
 }
 
-export type Prep = { open: Task[]; finishedSince: Task[]; note: string; decisions: Decision[] };
+export type Prep = {
+  open: Task[];
+  finishedSince: Task[];
+  note: string;
+  decisions: Decision[];
+  questions: string[];
+  nextFocus: string;
+};
 
 export function prepFor(data: Data, personId: string, today: string): Prep | null {
   const person = data.people.find((item) => item.id === personId);
@@ -595,6 +743,10 @@ export function prepFor(data: Data, personId: string, today: string): Prep | nul
     ),
     note: person.note,
     decisions: data.decisions.filter((item) => last && item.meetingId === last.id),
+    questions: data.bullets
+      .filter((bullet) => bullet.kind === "question" && last && bullet.ownerId === last.id && !bullet.done)
+      .map((bullet) => bullet.body),
+    nextFocus: last?.nextFocus ?? "",
   };
 }
 
@@ -680,6 +832,8 @@ export function shortcutList(): { keys: string; does: string }[] {
   return [
     { keys: "⌘N", does: "Log a meeting" },
     { keys: "⌘⇧N", does: "Log a meeting from anywhere on this Mac" },
+    { keys: "⌘⇧Y", does: "Hear what is due" },
+    { keys: "⌘⇧V", does: "Save a copied line for the last person" },
     { keys: "⌘K", does: "Command menu" },
     { keys: "⌘F", does: "Search" },
     { keys: "⌘1", does: "Home" },

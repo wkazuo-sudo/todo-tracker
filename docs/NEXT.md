@@ -1,6 +1,8 @@
 # More ideas
 
-These are not in the app. Home still opens on the four counts, the week, and the task list. Each idea below belongs on a person page, a meeting sheet, Review, Settings, or somewhere else on the Mac. None of them adds a new block to the first screen.
+These are in the app. Home opens on the counts and the bar charts. Notes are bullets, separate from tasks. Tab indents a bullet. Shift-Tab pulls it back. Due dates offer EOD, Tomorrow, In 2 Days, EOW, and Next Week.
+
+Two limits stay. The Mac Dock cannot grow a menu from this app, so that list lives in the menu bar. The desktop card is a small window, not a Mac widget. Command-Shift-N logs a meeting. Command-Shift-Y says what is due. Spotlight can find the file named Due today in Documents.
 
 Read on 1 November 2026 from the products named at the end. The other apps were not opened. A few pages did not return their article text. Those are listed under "Could not read."
 

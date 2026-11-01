@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { TaskAction, TaskPatch } from "./db";
+import { openFocus } from "./native";
 import {
   formatDay,
   type Activity,
@@ -19,6 +20,7 @@ type Props = {
   activity: Activity[];
   attachments: Attachment[];
   subtasks: Task[];
+  siblings?: Task[];
   onAction: (action: TaskAction) => void;
 };
 
@@ -30,6 +32,7 @@ export function TaskDetails({
   activity,
   attachments,
   subtasks,
+  siblings = [],
   onAction,
 }: Props) {
   const [checkTitle, setCheckTitle] = useState("");
@@ -41,6 +44,8 @@ export function TaskDetails({
       .join(", "),
   );
   const [notes, setNotes] = useState(task.notes);
+  const [ask, setAsk] = useState("");
+  const [clockOn, setClockOn] = useState<number | null>(null);
   const mine = checks.filter((item) => item.taskId === task.id);
   const history = activity.filter((item) => item.taskId === task.id).slice(-6).reverse();
   const files = attachments.filter((item) => item.taskId === task.id);
@@ -221,6 +226,121 @@ export function TaskDetails({
         <button type="button" className="text-button" onClick={() => onAction({ type: "attach", name: "", path: "" })}>
           Attach a file
         </button>
+      </div>
+
+      <div className="detail-block">
+        <p className="section-label">How this follow-up behaves</p>
+        <div className="chips">
+          <button type="button" className="chip" onClick={() => patch({ someday: !task.someday })}>
+            {task.someday ? "Bring it back" : "Someday"}
+          </button>
+          <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "void" })}>
+            Void it
+          </button>
+          <button type="button" className="chip" onClick={() => patch({ wake: "open" })}>
+            When I next open this Mac
+          </button>
+          <button type="button" className="chip" onClick={() => patch({ wake: "meeting" })}>
+            When I next log them
+          </button>
+          <button type="button" className="chip" onClick={() => void openFocus(task.id, task.title)}>
+            Work on this alone
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={() => {
+              if (clockOn === null) {
+                setClockOn(Date.now());
+                return;
+              }
+              const mins = Math.max(1, Math.round((Date.now() - clockOn) / 60000));
+              patch({ spentMin: (task.spentMin ?? 0) + mins });
+              setClockOn(null);
+            }}
+          >
+            {clockOn === null ? "Start a clock" : "Stop the clock"}
+          </button>
+        </div>
+        {(task.spentMin ?? 0) > 0 && <p className="quiet">{task.spentMin} minutes on this so far.</p>}
+        {task.sourceLine && <p className="quiet">From the note: {task.sourceLine}</p>}
+        <div className="detail-row">
+          <label>
+            Hide until
+            {task.hideUntil ? (
+              <input type="date" value={task.hideUntil} onChange={(event) => patch({ hideUntil: event.target.value || null })} />
+            ) : (
+              <button type="button" className="chip" onClick={() => patch({ hideUntil: today })}>
+                Hide until a day
+              </button>
+            )}
+          </label>
+          <label>
+            Do it on
+            {task.doOn ? (
+              <input type="date" value={task.doOn} onChange={(event) => patch({ doOn: event.target.value || null })} />
+            ) : (
+              <button type="button" className="chip" onClick={() => patch({ doOn: today })}>
+                A day to start
+              </button>
+            )}
+          </label>
+          <label>
+            Clock
+            <input value={task.clockTime ?? ""} placeholder="17:00" onChange={(event) => patch({ clockTime: event.target.value })} />
+          </label>
+          <label>
+            Nudge at
+            <input value={task.remindTime ?? ""} placeholder="09:00" onChange={(event) => patch({ remindTime: event.target.value })} />
+          </label>
+          <label>
+            Count
+            <input
+              value={task.countGoal ? `${task.countDone ?? 0} of ${task.countGoal}` : ""}
+              placeholder="3 of 5"
+              onBlur={(event) => {
+                const match = event.target.value.match(/(\d+)\s*of\s*(\d+)/i);
+                if (!match) return;
+                patch({ countDone: Number(match[1]), countGoal: Number(match[2]) });
+              }}
+            />
+          </label>
+          <label>
+            Length
+            <input
+              value={task.durationMin ? String(task.durationMin) : ""}
+              placeholder="Minutes"
+              onBlur={(event) => patch({ durationMin: Number(event.target.value) || 0 })}
+            />
+          </label>
+          <label>
+            Waits on
+            <select value={task.blockedBy ?? ""} onChange={(event) => patch({ blockedBy: event.target.value || null })}>
+              <option value="">Nothing</option>
+              {siblings
+                .filter((item) => item.id !== task.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
+        <form
+          className="add-person"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!ask.trim()) return;
+            onAction({ type: "ask", title: ask.trim(), personId: task.requesterId });
+            setAsk("");
+          }}
+        >
+          <input value={ask} placeholder="A new ask for the same person" onChange={(event) => setAsk(event.target.value)} />
+          <button className="text-button" type="submit">
+            Add
+          </button>
+        </form>
       </div>
 
       {history.length > 0 && (

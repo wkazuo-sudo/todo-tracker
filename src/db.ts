@@ -6,16 +6,23 @@ import {
   sortPeople,
   todayISO,
   type Activity,
+  type AskLater,
   type Attachment,
+  type Bullet,
   type CheckItem,
   type Company,
   type Data,
+  type DayLog,
   type Decision,
+  type Gift,
+  type LifeDate,
   type Meeting,
+  type Owner,
   type Person,
   type Priority,
   type RepeatRule,
   type SavedView,
+  type Section,
   type Settings,
   type Tag,
   type Task,
@@ -56,8 +63,17 @@ function repeatOf(value: string | null | undefined): RepeatRule {
 }
 
 function statusOf(value: string): TaskStatus {
-  if (value === "in_progress" || value === "waiting" || value === "done" || value === "set_aside") return value;
+  if (value === "in_progress" || value === "waiting" || value === "done" || value === "set_aside" || value === "void") return value;
   return "open";
+}
+
+function ownerOf(value: string | null | undefined): Owner {
+  return value === "theirs" ? "theirs" : "mine";
+}
+
+function wakeOf(value: string | null | undefined): "" | "open" | "meeting" | "weekday" {
+  if (value === "open" || value === "meeting" || value === "weekday") return value;
+  return "";
 }
 
 type PersonRow = {
@@ -69,6 +85,15 @@ type PersonRow = {
   company_id: string | null;
   check_in_on: string | null;
   cadence_days: number | null;
+  paused: number;
+  household: string;
+  met_how: string;
+  starred: number;
+  timezone: string;
+  place: string;
+  event_group: string;
+  promise_on: string | null;
+  sequential: number;
 };
 type MeetingRow = {
   id: string;
@@ -77,6 +102,12 @@ type MeetingRow = {
   meeting_date: string;
   note: string;
   created_at: string;
+  private_note: string;
+  next_on: string | null;
+  next_focus: string;
+  span_end: string | null;
+  source_url: string;
+  pinned: number;
 };
 type TaskRow = {
   id: string;
@@ -97,6 +128,26 @@ type TaskRow = {
   parent_id: string | null;
   remind: number;
   updated_at: string;
+  do_on: string | null;
+  hide_until: string | null;
+  someday: number;
+  section_id: string | null;
+  owner: string;
+  clock_time: string;
+  duration_min: number;
+  remind_time: string;
+  count_done: number;
+  count_goal: number;
+  blocked_by: string | null;
+  span_end: string | null;
+  source_url: string;
+  indent: number;
+  wake: string;
+  folded: number;
+  source_line: string;
+  unfiled: number;
+  returned: number;
+  spent_min: number;
 };
 
 function mapPerson(row: PersonRow): Person {
@@ -109,6 +160,15 @@ function mapPerson(row: PersonRow): Person {
     companyId: row.company_id,
     checkInOn: row.check_in_on,
     cadenceDays: row.cadence_days === null || row.cadence_days === undefined ? null : Number(row.cadence_days),
+    paused: bit(row.paused),
+    household: row.household ?? "",
+    metHow: row.met_how ?? "",
+    starred: bit(row.starred),
+    timezone: row.timezone ?? "",
+    place: row.place ?? "",
+    eventGroup: row.event_group ?? "",
+    promiseOn: row.promise_on,
+    sequential: bit(row.sequential),
   };
 }
 
@@ -133,6 +193,26 @@ function mapTask(row: TaskRow, tagIds: string[]): Task {
     remind: bit(row.remind),
     updatedAt: row.updated_at ?? "",
     tagIds,
+    doOn: row.do_on,
+    hideUntil: row.hide_until,
+    someday: bit(row.someday),
+    sectionId: row.section_id,
+    owner: ownerOf(row.owner),
+    clockTime: row.clock_time ?? "",
+    durationMin: Number(row.duration_min ?? 0),
+    remindTime: row.remind_time ?? "",
+    countDone: Number(row.count_done ?? 0),
+    countGoal: Number(row.count_goal ?? 0),
+    blockedBy: row.blocked_by,
+    spanEnd: row.span_end,
+    sourceUrl: row.source_url ?? "",
+    indent: Number(row.indent ?? 0),
+    wake: wakeOf(row.wake),
+    folded: bit(row.folded),
+    sourceLine: row.source_line ?? "",
+    unfiled: bit(row.unfiled),
+    returned: bit(row.returned),
+    spentMin: Number(row.spent_min ?? 0),
   };
 }
 
@@ -147,6 +227,14 @@ function readSettings(rows: { key: string; value: string }[]): Settings {
     morningDate: get("morningDate") || null,
     backupPath: get("backupPath") || "",
     sortClosest: get("sortClosest") === "1",
+    awayFrom: get("awayFrom") || null,
+    awayUntil: get("awayUntil") || null,
+    pingHour: get("pingHour") || "09:00",
+    weekHours: Number(get("weekHours") || 0),
+    contrast: get("contrast") === "1",
+    readyHour: get("readyHour") || "09:00",
+    weekdayOnly: get("weekdayOnly") === "1",
+    onlyPersonId: get("onlyPersonId") || null,
   };
 }
 
@@ -170,20 +258,24 @@ export async function loadAll(db: Database): Promise<Data> {
     removed,
     settings,
   ] = await Promise.all([
-    db.select<PersonRow[]>("SELECT id, name, note, created_at, color, company_id, check_in_on, cadence_days FROM people"),
+    db.select<PersonRow[]>(
+      "SELECT id, name, note, created_at, color, company_id, check_in_on, cadence_days, paused, household, met_how, starred, timezone, place, event_group, promise_on, sequential FROM people",
+    ),
     db.select<Company[]>("SELECT id, name FROM companies"),
-    db.select<MeetingRow[]>("SELECT id, person_id, title, meeting_date, note, created_at FROM meetings"),
+    db.select<MeetingRow[]>(
+      "SELECT id, person_id, title, meeting_date, note, created_at, private_note, next_on, next_focus, span_end, source_url, pinned FROM meetings",
+    ),
     db.select<{ meeting_id: string; person_id: string }[]>("SELECT meeting_id, person_id FROM meeting_people"),
     db.select<TaskRow[]>(
-      "SELECT id, meeting_id, requester_id, title, requested_on, due_on, status, completed_at, created_at, priority, pinned, evening, repeat_rule, notes, moved_count, parent_id, remind, updated_at FROM tasks",
+      "SELECT id, meeting_id, requester_id, title, requested_on, due_on, status, completed_at, created_at, priority, pinned, evening, repeat_rule, notes, moved_count, parent_id, remind, updated_at, do_on, hide_until, someday, section_id, owner, clock_time, duration_min, remind_time, count_done, count_goal, blocked_by, span_end, source_url, indent, wake, folded, source_line, unfiled, returned, spent_min FROM tasks",
     ),
     db.select<{ id: string; task_id: string; title: string; done: number; position: number }[]>(
       "SELECT id, task_id, title, done, position FROM checks",
     ),
     db.select<Tag[]>("SELECT id, name FROM tags"),
     db.select<{ task_id: string; tag_id: string }[]>("SELECT task_id, tag_id FROM task_tags"),
-    db.select<{ id: string; meeting_id: string; body: string; created_at: string }[]>(
-      "SELECT id, meeting_id, body, created_at FROM decisions",
+    db.select<{ id: string; meeting_id: string; body: string; created_at: string; why: string }[]>(
+      "SELECT id, meeting_id, body, created_at, why FROM decisions",
     ),
     db.select<{ id: string; task_id: string | null; kind: string; detail: string; created_at: string }[]>(
       "SELECT id, task_id, kind, detail, created_at FROM activity",
@@ -222,6 +314,12 @@ export async function loadAll(db: Database): Promise<Data> {
     note: row.note,
     createdAt: row.created_at,
     guestIds: (guestsByMeeting.get(row.id) ?? []).sort(),
+    privateNote: row.private_note ?? "",
+    nextOn: row.next_on,
+    nextFocus: row.next_focus ?? "",
+    spanEnd: row.span_end,
+    sourceUrl: row.source_url ?? "",
+    pinned: bit(row.pinned),
   }));
 
   const mappedChecks: CheckItem[] = checks.map((row) => ({
@@ -236,6 +334,7 @@ export async function loadAll(db: Database): Promise<Data> {
     meetingId: row.meeting_id,
     body: row.body,
     createdAt: row.created_at,
+    why: row.why ?? "",
   }));
   const mappedActivity: Activity[] = activity.map((row) => ({
     id: row.id,
@@ -270,6 +369,61 @@ export async function loadAll(db: Database): Promise<Data> {
     personId: row.person_id,
   }));
 
+  const [bullets, sections, lifeDates, gifts, asks, logs] = await Promise.all([
+    db.select<{ id: string; owner_kind: string; owner_id: string; kind: string; body: string; indent: number; position: number; done: number; folded: number }[]>(
+      "SELECT id, owner_kind, owner_id, kind, body, indent, position, done, folded FROM bullets",
+    ),
+    db.select<{ id: string; person_id: string; name: string; position: number }[]>(
+      "SELECT id, person_id, name, position FROM sections",
+    ),
+    db.select<{ id: string; person_id: string; label: string; on_date: string }[]>(
+      "SELECT id, person_id, label, on_date FROM life_dates",
+    ),
+    db.select<{ id: string; person_id: string; body: string; given: number }[]>("SELECT id, person_id, body, given FROM gifts"),
+    db.select<{ id: string; person_id: string; body: string; on_date: string; done: number }[]>(
+      "SELECT id, person_id, body, on_date, done FROM asks",
+    ),
+    db.select<{ id: string; on_date: string; kind: string; body: string }[]>("SELECT id, on_date, kind, body FROM day_logs"),
+  ]);
+
+  const mappedBullets: Bullet[] = bullets.map((row) => ({
+    id: row.id,
+    ownerKind: row.owner_kind,
+    ownerId: row.owner_id,
+    kind: row.kind,
+    body: row.body,
+    indent: Number(row.indent ?? 0),
+    position: Number(row.position ?? 0),
+    done: bit(row.done),
+    folded: bit(row.folded),
+  }));
+  const mappedSections: Section[] = sections.map((row) => ({
+    id: row.id,
+    personId: row.person_id,
+    name: row.name,
+    position: Number(row.position ?? 0),
+  }));
+  const mappedDates: LifeDate[] = lifeDates.map((row) => ({
+    id: row.id,
+    personId: row.person_id,
+    label: row.label,
+    onDate: row.on_date,
+  }));
+  const mappedGifts: Gift[] = gifts.map((row) => ({
+    id: row.id,
+    personId: row.person_id,
+    body: row.body,
+    given: bit(row.given),
+  }));
+  const mappedAsks: AskLater[] = asks.map((row) => ({
+    id: row.id,
+    personId: row.person_id,
+    body: row.body,
+    onDate: row.on_date,
+    done: bit(row.done),
+  }));
+  const mappedLogs: DayLog[] = logs.map((row) => ({ id: row.id, onDate: row.on_date, kind: row.kind, body: row.body }));
+
   return {
     people: sortPeople(people.map(mapPerson)),
     companies: byId(companies),
@@ -286,6 +440,12 @@ export async function loadAll(db: Database): Promise<Data> {
       removed.map((row) => ({ id: row.id, name: row.name, snapshot: row.snapshot, removedAt: row.removed_at })),
     ),
     settings: settings.length ? readSettings(settings) : { ...DEFAULT_SETTINGS },
+    bullets: byId(mappedBullets),
+    sections: byId(mappedSections),
+    lifeDates: byId(mappedDates),
+    gifts: byId(mappedGifts),
+    asks: byId(mappedAsks),
+    logs: byId(mappedLogs),
   };
 }
 
@@ -312,6 +472,12 @@ export type NewTaskInput = {
   dueOn: string | null;
   evening: boolean;
   repeatRule: RepeatRule;
+  indent?: number;
+  owner?: Owner;
+  doOn?: string | null;
+  durationMin?: number;
+  clockTime?: string;
+  sourceLine?: string;
 };
 
 export type SaveMeetingInput = {
@@ -324,6 +490,15 @@ export type SaveMeetingInput = {
   markDoneIds: string[];
   guestIds: string[];
   decisions: string[];
+  decisionWhys?: string[];
+  noteLines?: { text: string; indent: number; folded?: boolean }[];
+  topics?: { text: string; indent: number; done?: boolean }[];
+  questions?: { text: string; indent: number }[];
+  privateNote?: string;
+  nextOn?: string | null;
+  nextFocus?: string;
+  spanEnd?: string | null;
+  sourceUrl?: string;
 };
 
 export type SaveMeetingResult = {
@@ -363,14 +538,15 @@ export async function saveMeeting(db: Database, input: SaveMeetingInput): Promis
       await db.execute("INSERT INTO meeting_people (meeting_id, person_id) VALUES ($1, $2)", [meetingId, guestId]);
     }
   }
-  for (const body of input.decisions) {
+  for (const [index, body] of input.decisions.entries()) {
     const text = body.trim();
     if (!text) continue;
-    await db.execute("INSERT INTO decisions (id, meeting_id, body, created_at) VALUES ($1, $2, $3, $4)", [
+    await db.execute("INSERT INTO decisions (id, meeting_id, body, created_at, why) VALUES ($1, $2, $3, $4, $5)", [
       uid(),
       meetingId,
       text,
       now(),
+      (input.decisionWhys ?? [])[index]?.trim() ?? "",
     ]);
   }
 
@@ -379,6 +555,23 @@ export async function saveMeeting(db: Database, input: SaveMeetingInput): Promis
     const title = task.title.trim();
     if (!title) continue;
     const requesterId = task.requesterId && task.requesterId !== personId ? task.requesterId : personId;
+    const same = existing.tasks.find(
+      (item) =>
+        item.requesterId === requesterId &&
+        item.title.trim().toLowerCase() === title.toLowerCase() &&
+        item.status !== "done" &&
+        item.status !== "void",
+    );
+    if (same) {
+      await db.execute("UPDATE tasks SET notes = $1, source_line = $2, updated_at = $3 WHERE id = $4", [
+        same.notes ? `${same.notes}\nAsked again ${input.meetingDate}` : `Asked again ${input.meetingDate}`,
+        title,
+        todayISO(),
+        same.id,
+      ]);
+      await log(db, same.id, "merged", "Same ask, kept on the old card");
+      continue;
+    }
     const id = uid();
     await db.execute(
       "INSERT INTO tasks (id, meeting_id, requester_id, title, requested_on, due_on, status, completed_at, created_at, priority, pinned, evening, repeat_rule, notes, moved_count, parent_id, remind, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)",
@@ -403,9 +596,32 @@ export async function saveMeeting(db: Database, input: SaveMeetingInput): Promis
         todayISO(),
       ],
     );
+    await db.execute(
+      "UPDATE tasks SET indent = $1, owner = $2, do_on = $3, duration_min = $4, clock_time = $5, source_line = $6 WHERE id = $7",
+      [task.indent ?? 0, task.owner === "theirs" ? "theirs" : "mine", task.doOn ?? null, task.durationMin ?? 0, task.clockTime ?? "", task.sourceLine ?? "", id],
+    );
     await log(db, id, "created", "From the meeting");
     taskCount += 1;
   }
+
+  const noteText = (input.noteLines ?? [])
+    .map((line) => `${"  ".repeat(line.indent)}${line.text.trim()}`)
+    .filter((line) => line.trim())
+    .join("\n");
+  if (noteText) {
+    await db.execute("UPDATE meetings SET note = $1 WHERE id = $2", [noteText, meetingId]);
+  }
+  await replaceBullets(db, "meeting", meetingId, "note", input.noteLines ?? []);
+  await replaceBullets(db, "meeting", meetingId, "topic", input.topics ?? []);
+  await replaceBullets(db, "meeting", meetingId, "question", input.questions ?? []);
+  await db.execute(
+    "UPDATE meetings SET private_note = $1, next_on = $2, next_focus = $3, span_end = $4, source_url = $5 WHERE id = $6",
+    [input.privateNote ?? "", input.nextOn ?? null, input.nextFocus ?? "", input.spanEnd ?? null, input.sourceUrl ?? "", meetingId],
+  );
+  await db.execute(
+    "UPDATE tasks SET hide_until = NULL, wake = '', returned = 1 WHERE wake = 'meeting' AND requester_id = $1",
+    [personId],
+  );
 
   const today = todayISO();
   for (const id of input.markDoneIds) {
@@ -448,6 +664,15 @@ export type PersonPatch = {
   companyId?: string | null;
   checkInOn?: string | null;
   cadenceDays?: number | null;
+  paused?: boolean;
+  household?: string;
+  metHow?: string;
+  starred?: boolean;
+  timezone?: string;
+  place?: string;
+  eventGroup?: string;
+  promiseOn?: string | null;
+  sequential?: boolean;
 };
 
 export async function updatePerson(db: Database, id: string, fields: PersonPatch): Promise<void> {
@@ -458,6 +683,15 @@ export async function updatePerson(db: Database, id: string, fields: PersonPatch
   if (fields.cadenceDays !== undefined) {
     await db.execute("UPDATE people SET cadence_days = $1 WHERE id = $2", [fields.cadenceDays, id]);
   }
+  if (fields.paused !== undefined) await db.execute("UPDATE people SET paused = $1 WHERE id = $2", [fields.paused ? 1 : 0, id]);
+  if (fields.household !== undefined) await db.execute("UPDATE people SET household = $1 WHERE id = $2", [fields.household, id]);
+  if (fields.metHow !== undefined) await db.execute("UPDATE people SET met_how = $1 WHERE id = $2", [fields.metHow, id]);
+  if (fields.starred !== undefined) await db.execute("UPDATE people SET starred = $1 WHERE id = $2", [fields.starred ? 1 : 0, id]);
+  if (fields.timezone !== undefined) await db.execute("UPDATE people SET timezone = $1 WHERE id = $2", [fields.timezone, id]);
+  if (fields.place !== undefined) await db.execute("UPDATE people SET place = $1 WHERE id = $2", [fields.place, id]);
+  if (fields.eventGroup !== undefined) await db.execute("UPDATE people SET event_group = $1 WHERE id = $2", [fields.eventGroup, id]);
+  if (fields.promiseOn !== undefined) await db.execute("UPDATE people SET promise_on = $1 WHERE id = $2", [fields.promiseOn, id]);
+  if (fields.sequential !== undefined) await db.execute("UPDATE people SET sequential = $1 WHERE id = $2", [fields.sequential ? 1 : 0, id]);
 }
 
 export async function updatePersonNote(db: Database, id: string, note: string): Promise<void> {
@@ -477,7 +711,7 @@ export async function addCompany(db: Database, name: string): Promise<string> {
 export async function updateMeeting(
   db: Database,
   id: string,
-  fields: { title?: string; meetingDate?: string; note?: string },
+  fields: { title?: string; meetingDate?: string; note?: string; pinned?: boolean },
 ): Promise<void> {
   if (fields.title !== undefined) await db.execute("UPDATE meetings SET title = $1 WHERE id = $2", [fields.title.trim(), id]);
   if (fields.meetingDate !== undefined) {
@@ -493,6 +727,7 @@ export async function updateMeeting(
     }
   }
   if (fields.note !== undefined) await db.execute("UPDATE meetings SET note = $1 WHERE id = $2", [fields.note, id]);
+  if (fields.pinned !== undefined) await db.execute("UPDATE meetings SET pinned = $1 WHERE id = $2", [fields.pinned ? 1 : 0, id]);
 }
 
 export async function updateGuests(db: Database, meetingId: string, personIds: string[]): Promise<void> {
@@ -627,6 +862,24 @@ export type TaskPatch = {
   notes?: string;
   remind?: boolean;
   tagNames?: string[];
+  doOn?: string | null;
+  hideUntil?: string | null;
+  someday?: boolean;
+  sectionId?: string | null;
+  owner?: Owner;
+  clockTime?: string;
+  durationMin?: number;
+  remindTime?: string;
+  countDone?: number;
+  countGoal?: number;
+  blockedBy?: string | null;
+  spanEnd?: string | null;
+  sourceUrl?: string;
+  indent?: number;
+  wake?: "" | "open" | "meeting" | "weekday";
+  returned?: boolean;
+  spentMin?: number;
+  unfiled?: boolean;
 };
 
 async function setTagNames(db: Database, taskId: string, names: string[]): Promise<void> {
@@ -664,6 +917,31 @@ export async function patchTask(db: Database, id: string, patch: TaskPatch): Pro
     await db.execute("UPDATE tasks SET remind = $1, updated_at = $2 WHERE id = $3", [patch.remind ? 1 : 0, todayISO(), id]);
   }
   if (patch.tagNames !== undefined) await setTagNames(db, id, patch.tagNames);
+  const sets: [string, string | number | null][] = [];
+  const put = (column: string, value: string | number | null | undefined, present: boolean) => {
+    if (present) sets.push([column, value ?? null]);
+  };
+  put("do_on", patch.doOn ?? null, patch.doOn !== undefined);
+  put("hide_until", patch.hideUntil ?? null, patch.hideUntil !== undefined);
+  put("someday", patch.someday ? 1 : 0, patch.someday !== undefined);
+  put("section_id", patch.sectionId ?? null, patch.sectionId !== undefined);
+  put("owner", patch.owner ?? "mine", patch.owner !== undefined);
+  put("clock_time", patch.clockTime ?? "", patch.clockTime !== undefined);
+  put("duration_min", patch.durationMin ?? 0, patch.durationMin !== undefined);
+  put("remind_time", patch.remindTime ?? "", patch.remindTime !== undefined);
+  put("count_done", patch.countDone ?? 0, patch.countDone !== undefined);
+  put("count_goal", patch.countGoal ?? 0, patch.countGoal !== undefined);
+  put("blocked_by", patch.blockedBy ?? null, patch.blockedBy !== undefined);
+  put("span_end", patch.spanEnd ?? null, patch.spanEnd !== undefined);
+  put("source_url", patch.sourceUrl ?? "", patch.sourceUrl !== undefined);
+  put("indent", patch.indent ?? 0, patch.indent !== undefined);
+  put("wake", patch.wake ?? "", patch.wake !== undefined);
+  put("returned", patch.returned ? 1 : 0, patch.returned !== undefined);
+  put("spent_min", patch.spentMin ?? 0, patch.spentMin !== undefined);
+  put("unfiled", patch.unfiled ? 1 : 0, patch.unfiled !== undefined);
+  for (const [column, value] of sets) {
+    await db.execute(`UPDATE tasks SET ${column} = $1, updated_at = $2 WHERE id = $3`, [value, todayISO(), id]);
+  }
 }
 
 export type TaskAction =
@@ -676,6 +954,7 @@ export type TaskAction =
   | { type: "check-delete"; id: string }
   | { type: "subtask"; title: string }
   | { type: "attach"; name: string; path: string }
+  | { type: "ask"; title: string; personId: string | null }
   | { type: "detach"; id: string };
 
 export async function applyTask(db: Database, taskId: string, action: TaskAction): Promise<void> {
@@ -696,6 +975,7 @@ export async function applyTask(db: Database, taskId: string, action: TaskAction
     await db.execute("DELETE FROM attachments WHERE id = $1", [action.id]);
     return;
   }
+  if (action.type === "ask") return;
   if (action.type === "attach") {
     await db.execute(
       "INSERT INTO attachments (id, task_id, meeting_id, name, path, created_at) VALUES ($1, $2, NULL, $3, $4, $5)",
@@ -749,6 +1029,7 @@ export async function deleteMeeting(db: Database, id: string): Promise<void> {
   }
   await db.execute("DELETE FROM attachments WHERE meeting_id = $1", [id]);
   await db.execute("DELETE FROM decisions WHERE meeting_id = $1", [id]);
+  await db.execute("DELETE FROM bullets WHERE owner_kind = 'meeting' AND owner_id = $1", [id]);
   await db.execute("DELETE FROM meeting_people WHERE meeting_id = $1", [id]);
   await db.execute("DELETE FROM tasks WHERE meeting_id = $1", [id]);
   await db.execute("DELETE FROM meetings WHERE id = $1", [id]);
@@ -805,6 +1086,21 @@ async function insertPerson(db: Database, person: Person): Promise<void> {
     "INSERT INTO people (id, name, note, created_at, color, company_id, check_in_on, cadence_days) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     [person.id, person.name, person.note, person.createdAt, person.color, person.companyId, person.checkInOn, person.cadenceDays],
   );
+  await db.execute(
+    "UPDATE people SET paused=$1, household=$2, met_how=$3, starred=$4, timezone=$5, place=$6, event_group=$7, promise_on=$8, sequential=$9 WHERE id=$10",
+    [
+      person.paused ? 1 : 0,
+      person.household ?? "",
+      person.metHow ?? "",
+      person.starred ? 1 : 0,
+      person.timezone ?? "",
+      person.place ?? "",
+      person.eventGroup ?? "",
+      person.promiseOn ?? null,
+      person.sequential ? 1 : 0,
+      person.id,
+    ],
+  );
 }
 
 async function insertMeeting(db: Database, meeting: Meeting): Promise<void> {
@@ -815,6 +1111,10 @@ async function insertMeeting(db: Database, meeting: Meeting): Promise<void> {
   for (const guestId of meeting.guestIds ?? []) {
     await db.execute("INSERT INTO meeting_people (meeting_id, person_id) VALUES ($1, $2)", [meeting.id, guestId]);
   }
+  await db.execute(
+    "UPDATE meetings SET private_note=$1, next_on=$2, next_focus=$3, span_end=$4, source_url=$5, pinned=$6 WHERE id=$7",
+    [meeting.privateNote ?? "", meeting.nextOn ?? null, meeting.nextFocus ?? "", meeting.spanEnd ?? null, meeting.sourceUrl ?? "", meeting.pinned ? 1 : 0, meeting.id],
+  );
 }
 
 async function insertTask(db: Database, task: Task): Promise<void> {
@@ -844,6 +1144,32 @@ async function insertTask(db: Database, task: Task): Promise<void> {
   for (const tagId of task.tagIds ?? []) {
     await db.execute("INSERT INTO task_tags (task_id, tag_id) VALUES ($1, $2)", [task.id, tagId]);
   }
+  await db.execute(
+    "UPDATE tasks SET do_on=$1, hide_until=$2, someday=$3, section_id=$4, owner=$5, clock_time=$6, duration_min=$7, remind_time=$8, count_done=$9, count_goal=$10, blocked_by=$11, span_end=$12, source_url=$13, indent=$14, wake=$15, folded=$16, source_line=$17, unfiled=$18, returned=$19, spent_min=$20 WHERE id=$21",
+    [
+      task.doOn ?? null,
+      task.hideUntil ?? null,
+      task.someday ? 1 : 0,
+      task.sectionId ?? null,
+      task.owner === "theirs" ? "theirs" : "mine",
+      task.clockTime ?? "",
+      task.durationMin ?? 0,
+      task.remindTime ?? "",
+      task.countDone ?? 0,
+      task.countGoal ?? 0,
+      task.blockedBy ?? null,
+      task.spanEnd ?? null,
+      task.sourceUrl ?? "",
+      task.indent ?? 0,
+      task.wake ?? "",
+      task.folded ? 1 : 0,
+      task.sourceLine ?? "",
+      task.unfiled ? 1 : 0,
+      task.returned ? 1 : 0,
+      task.spentMin ?? 0,
+      task.id,
+    ],
+  );
 }
 
 export async function restoreRemoved(db: Database, id: string): Promise<void> {
@@ -908,6 +1234,12 @@ async function clearAll(db: Database): Promise<void> {
     "saved_views",
     "removed_people",
     "settings",
+    "bullets",
+    "sections",
+    "life_dates",
+    "gifts",
+    "asks",
+    "day_logs",
   ];
   for (const table of tables) await db.execute(`DELETE FROM ${table}`);
 }
@@ -986,8 +1318,126 @@ export async function replaceAll(db: Database, data: Data): Promise<void> {
     ["morningDate", data.settings.morningDate ?? ""],
     ["backupPath", data.settings.backupPath],
     ["sortClosest", data.settings.sortClosest ? "1" : "0"],
+    ["awayFrom", data.settings.awayFrom ?? ""],
+    ["awayUntil", data.settings.awayUntil ?? ""],
+    ["pingHour", data.settings.pingHour],
+    ["weekHours", String(data.settings.weekHours || "")],
+    ["contrast", data.settings.contrast ? "1" : "0"],
+    ["readyHour", data.settings.readyHour],
+    ["weekdayOnly", data.settings.weekdayOnly ? "1" : "0"],
+    ["onlyPersonId", data.settings.onlyPersonId ?? ""],
   ];
-  for (const [key, value] of settings) {
-    if (value) await setSetting(db, key, value);
+  for (const bullet of data.bullets ?? []) {
+    await db.execute(
+      "INSERT INTO bullets (id, owner_kind, owner_id, kind, body, indent, position, done, folded) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [bullet.id, bullet.ownerKind, bullet.ownerId, bullet.kind, bullet.body, bullet.indent, bullet.position, bullet.done ? 1 : 0, bullet.folded ? 1 : 0],
+    );
   }
+  for (const section of data.sections ?? []) {
+    await db.execute("INSERT INTO sections (id, person_id, name, position) VALUES ($1, $2, $3, $4)", [
+      section.id,
+      section.personId,
+      section.name,
+      section.position,
+    ]);
+  }
+  for (const item of data.lifeDates ?? []) {
+    await db.execute("INSERT INTO life_dates (id, person_id, label, on_date) VALUES ($1, $2, $3, $4)", [
+      item.id,
+      item.personId,
+      item.label,
+      item.onDate,
+    ]);
+  }
+  for (const gift of data.gifts ?? []) {
+    await db.execute("INSERT INTO gifts (id, person_id, body, given) VALUES ($1, $2, $3, $4)", [
+      gift.id,
+      gift.personId,
+      gift.body,
+      gift.given ? 1 : 0,
+    ]);
+  }
+  for (const ask of data.asks ?? []) {
+    await db.execute("INSERT INTO asks (id, person_id, body, on_date, done) VALUES ($1, $2, $3, $4, $5)", [
+      ask.id,
+      ask.personId,
+      ask.body,
+      ask.onDate,
+      ask.done ? 1 : 0,
+    ]);
+  }
+  for (const log of data.logs ?? []) {
+    await db.execute("INSERT INTO day_logs (id, on_date, kind, body) VALUES ($1, $2, $3, $4)", [log.id, log.onDate, log.kind, log.body]);
+  }
+  for (const [key, value] of settings) {
+    await setSetting(db, key, value);
+  }
+}
+
+export async function replaceBullets(
+  db: Database,
+  ownerKind: string,
+  ownerId: string,
+  kind: string,
+  lines: { text: string; indent: number; done?: boolean; folded?: boolean }[],
+): Promise<void> {
+  await db.execute("DELETE FROM bullets WHERE owner_kind = $1 AND owner_id = $2 AND kind = $3", [ownerKind, ownerId, kind]);
+  let position = 0;
+  for (const line of lines) {
+    const text = line.text.trim();
+    if (!text) continue;
+    position += 1;
+    await db.execute(
+      "INSERT INTO bullets (id, owner_kind, owner_id, kind, body, indent, position, done, folded) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [uid(), ownerKind, ownerId, kind, text, line.indent, position, line.done ? 1 : 0, line.folded ? 1 : 0],
+    );
+  }
+}
+
+export async function addLooseTask(db: Database, personId: string | null, title: string, note: string): Promise<void> {
+  const text = title.trim();
+  if (!text) return;
+  const id = uid();
+  await db.execute(
+    "INSERT INTO tasks (id, meeting_id, requester_id, title, requested_on, due_on, status, completed_at, created_at, priority, pinned, evening, repeat_rule, notes, moved_count, parent_id, remind, updated_at, unfiled) VALUES ($1, $2, $3, $4, $5, NULL, 'open', NULL, $6, 'none', 0, 0, NULL, $7, 0, NULL, 0, $8, $9)",
+    [id, "", personId ?? "", text, todayISO(), now(), note, todayISO(), personId ? 0 : 1],
+  );
+}
+
+export async function addSection(db: Database, personId: string, name: string): Promise<void> {
+  const text = name.trim();
+  if (!text) return;
+  await db.execute("INSERT INTO sections (id, person_id, name, position) VALUES ($1, $2, $3, $4)", [uid(), personId, text, Date.now()]);
+}
+
+export async function addLifeDate(db: Database, personId: string, label: string, onDate: string): Promise<void> {
+  if (!label.trim() || !onDate) return;
+  await db.execute("INSERT INTO life_dates (id, person_id, label, on_date) VALUES ($1, $2, $3, $4)", [uid(), personId, label.trim(), onDate]);
+}
+
+export async function addGift(db: Database, personId: string, body: string): Promise<void> {
+  if (!body.trim()) return;
+  await db.execute("INSERT INTO gifts (id, person_id, body, given) VALUES ($1, $2, $3, 0)", [uid(), personId, body.trim()]);
+}
+
+export async function toggleGift(db: Database, id: string, given: boolean): Promise<void> {
+  await db.execute("UPDATE gifts SET given = $1 WHERE id = $2", [given ? 1 : 0, id]);
+}
+
+export async function addAsk(db: Database, personId: string, body: string, onDate: string): Promise<void> {
+  if (!body.trim() || !onDate) return;
+  await db.execute("INSERT INTO asks (id, person_id, body, on_date, done) VALUES ($1, $2, $3, $4, 0)", [uid(), personId, body.trim(), onDate]);
+}
+
+export async function toggleAsk(db: Database, id: string, done: boolean): Promise<void> {
+  await db.execute("UPDATE asks SET done = $1 WHERE id = $2", [done ? 1 : 0, id]);
+}
+
+export async function addDayLog(db: Database, onDate: string, kind: string, body: string): Promise<void> {
+  if (!body.trim()) return;
+  await db.execute("INSERT INTO day_logs (id, on_date, kind, body) VALUES ($1, $2, $3, $4)", [uid(), onDate, kind, body.trim()]);
+}
+
+export async function deleteDayLog(db: Database, id: string): Promise<void> {
+  await db.execute("DELETE FROM day_logs WHERE id = $1", [id]);
 }

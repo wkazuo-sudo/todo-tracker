@@ -3,6 +3,10 @@ import test from "node:test";
 import {
   addDays,
   bucketFor,
+  DEFAULT_SETTINGS,
+  duePresets,
+  fridayThisWeek,
+  isOnBoard,
   endOfWeek,
   fullestDayLine,
   groupOpen,
@@ -19,10 +23,12 @@ import {
   savedLine,
   searchAll,
   startOfWeek,
+  tasksForHome,
   tasksForMeeting,
   waitingLine,
   weekFlow,
   weekTotals,
+  type Data,
   type Meeting,
   type Person,
   type Task,
@@ -218,4 +224,48 @@ test("a written day becomes a due date, and the median ignores one odd task", ()
   assert.equal(medianWait(waits.slice(0, 4)), null);
   assert.equal(bucketFor(task({ id: "wait", status: "waiting" }), sunday), null);
   assert.equal(bucketFor(task({ id: "eve", evening: true, dueOn: sunday }), sunday), "evening");
+});
+
+test("due shortcuts on a Sunday land on today, Friday, and a week ahead", () => {
+  assert.equal(fridayThisWeek(sunday), "2026-11-06");
+  const presets = Object.fromEntries(duePresets(sunday).map((preset) => [preset.id, preset.date]));
+  assert.equal(presets.eod, "2026-11-01");
+  assert.equal(presets.tomorrow, "2026-11-02");
+  assert.equal(presets.two, "2026-11-03");
+  assert.equal(presets.eow, "2026-11-06");
+  assert.equal(presets.next, "2026-11-08");
+});
+
+test("someday and the catch pile stay off the home list", () => {
+  const data: Data = {
+    people: [person("mic", "Mic")],
+    companies: [],
+    meetings: [meeting({ id: "m1", personId: "mic" })],
+    tasks: [
+      task({ id: "real" }),
+      task({ id: "later", someday: true }),
+      task({ id: "pile", unfiled: true, meetingId: "" }),
+      task({ id: "gone", status: "void" }),
+    ],
+    checks: [],
+    tags: [],
+    decisions: [],
+    activity: [],
+    attachments: [],
+    templates: [],
+    views: [],
+    removed: [],
+    settings: { ...DEFAULT_SETTINGS },
+    bullets: [],
+    sections: [],
+    lifeDates: [],
+    gifts: [],
+    asks: [],
+    logs: [],
+  };
+  assert.equal(isOnBoard(task({ id: "later", someday: true }), sunday), false);
+  assert.deepEqual(
+    tasksForHome(data, sunday).map((item) => item.id),
+    ["real"],
+  );
 });

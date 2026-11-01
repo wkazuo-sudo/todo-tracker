@@ -11,6 +11,30 @@ import {
 
 export type CalEvent = { date: string; title: string };
 
+export async function setTrayMenu(lines: { id: string; label: string }[]): Promise<void> {
+  try {
+    await invoke("set_tray_menu", { lines });
+  } catch {
+    // The menu is a convenience.
+  }
+}
+
+export async function writeSpotlight(contents: string): Promise<void> {
+  try {
+    await invoke("write_spotlight", { contents });
+  } catch {
+    // Spotlight is optional.
+  }
+}
+
+export async function sayText(text: string): Promise<void> {
+  try {
+    await invoke("say_text", { text });
+  } catch {
+    // Speech is optional.
+  }
+}
+
 export async function setMenuCount(text: string): Promise<void> {
   try {
     await invoke("set_menu_count", { text });
@@ -65,6 +89,24 @@ export async function onLogMeeting(run: () => void): Promise<UnlistenFn> {
   }
 }
 
+export async function onShowTask(run: (taskId: string) => void): Promise<UnlistenFn> {
+  try {
+    return await listen<string>("show-task", (event) => {
+      if (typeof event.payload === "string") run(event.payload);
+    });
+  } catch {
+    return () => undefined;
+  }
+}
+
+export async function onSayDue(run: () => void): Promise<UnlistenFn> {
+  try {
+    return await listen("say-due", () => run());
+  } catch {
+    return () => undefined;
+  }
+}
+
 export async function onShowPerson(run: (personId: string) => void): Promise<UnlistenFn> {
   try {
     return await listen<string>("show-person", (event) => {
@@ -110,4 +152,31 @@ export async function watchClose(dirty: () => boolean): Promise<() => void> {
 
 export function personFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("person");
+}
+
+export function cardFromUrl(): boolean {
+  return new URLSearchParams(window.location.search).get("card") === "1";
+}
+
+export async function openCard(): Promise<void> {
+  const created = new WebviewWindow("card", {
+    url: "/?card=1",
+    title: "Due",
+    width: 320,
+    height: 480,
+    alwaysOnTop: true,
+    backgroundColor: "#F3F0EA",
+  });
+  created.once("tauri://error", () => undefined);
+}
+
+export async function openFocus(taskId: string, title: string): Promise<void> {
+  const created = new WebviewWindow("focus", {
+    url: `/?task=${encodeURIComponent(taskId)}`,
+    title,
+    width: 420,
+    height: 280,
+    backgroundColor: "#F3F0EA",
+  });
+  created.once("tauri://error", () => undefined);
 }

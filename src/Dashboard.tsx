@@ -1,17 +1,21 @@
 import { useEffect, useState, type DragEvent } from "react";
 import type { TaskAction } from "./db";
 import { TaskRow } from "./TaskRow";
+import { BarChart } from "./ui";
 import {
   bucketLabel,
   checkInsDue,
   dayNumber,
   fiveWeeks,
   formatDay,
-  fullestDayLine,
   groupOpen,
   heavyDayLine,
   isLongWait,
+  isActive,
+  addDays,
   isOnBoard,
+  statusBars,
+  tasksForHome,
   medianWait,
   nextSevenDays,
   oldestOpen,
@@ -21,7 +25,6 @@ import {
   swatch,
   tasksForView,
   waitingAge,
-  waitingLine,
   weekdayShort,
   weekFlow,
   weekTotals,
@@ -37,6 +40,7 @@ type Props = {
   onOpenTask: (task: Task) => void;
   onOpenPerson: (personId: string) => void;
   onLog: (personId?: string) => void;
+  onOpenDay?: (date: string) => void;
   onAction: (task: Task, action: TaskAction) => void;
   onCheckIn: (personId: string, kind: "snooze" | "dismiss") => void;
   onMorning: (keepIds: string[], moveIds: string[]) => void;
@@ -51,10 +55,10 @@ type Props = {
 const GROUPS: { bucket: Bucket; id: string }[] = [
   { bucket: "overdue", id: "group-overdue" },
   { bucket: "today", id: "group-today" },
-  { bucket: "evening", id: "group-evening" },
   { bucket: "this_week", id: "group-this-week" },
   { bucket: "later", id: "group-later" },
   { bucket: "none", id: "group-none" },
+  { bucket: "evening", id: "group-evening" },
 ];
 
 function dayMeta(tasks: number, meetings: number): string {
@@ -73,6 +77,7 @@ export function Dashboard({
   onOpenTask,
   onOpenPerson,
   onLog,
+  onOpenDay,
   onAction,
   onCheckIn,
   onMorning,
@@ -91,8 +96,10 @@ export function Dashboard({
   const [naming, setNaming] = useState(false);
   const [picks, setPicks] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
+  const [folded, setFolded] = useState<string[]>([]);
 
-  const visible = tasksForView(data.tasks, today, filter);
+  const homeTasks = tasksForHome(data, today);
+  const visible = tasksForView(homeTasks, today, filter);
   const groups = groupOpen(visible, today);
   const days = nextSevenDays(data.tasks, data.meetings, today);
   const totals = weekTotals(data.tasks, today);
@@ -169,7 +176,19 @@ export function Dashboard({
     return (
       <div
         key={task.id}
-        className="task-wrap"
+        className={
+          task.blockedBy &&
+          task.dueOn &&
+          data.tasks.find((item) => item.id === task.blockedBy)?.dueOn &&
+          task.dueOn < (data.tasks.find((item) => item.id === task.blockedBy)?.dueOn ?? "")
+            ? "task-wrap clash"
+            : data.meetings.some(
+                  (meeting) =>
+                    meeting.personId === task.requesterId && meeting.meetingDate > today && meeting.meetingDate <= addDays(today, 3),
+                )
+              ? "task-wrap soon"
+              : "task-wrap"
+        }
         draggable
         onDragStart={(event) => {
           event.dataTransfer.setData("text/task-id", task.id);
@@ -204,6 +223,7 @@ export function Dashboard({
           onTitle={() => undefined}
           onDue={(dueOn) => onAction(task, { type: "due", dueOn })}
           onOpen={() => onOpenTask(task)}
+          siblings={data.tasks}
           onAction={(action) => onAction(task, action)}
         />
       </div>
@@ -287,10 +307,60 @@ export function Dashboard({
             onClick={() => scrollTo(card.id, card.count)}
           >
             <span className="count-number">{card.count}</span>
-            <span className="count-label">{card.label}</span>
+            <span className="count-label">{card.late ? `Late · ${card.label}` : card.label}</span>
           </button>
         ))}
       </div>
+
+      <div className="charts">
+        <BarChart
+          title="Tasks due in the next seven days"
+          rows={days.map((day) => ({ label: day.date === today ? "Today" : weekdayShort(day.date), count: day.tasks }))}
+        />
+        <BarChart title="How the work sits" rows={statusBars(data.tasks)} />
+        <section className="card chart-card">
+          <h2>Who is waiting</h2>
+          <div className="hbars">
+            {peopleWaiting.length === 0 && <p className="quiet">No open tasks are tied to a person yet.</p>}
+            {peopleWaiting.map((row) => (
+              <button key={row.person.id} className="hbar" onClick={() => onOpenPerson(row.person.id)}>
+                <span className="hbar-name">{row.person.name}</span>
+                <span className="hbar-track">
+                  <span className="hbar-fill" style={{ width: `${(row.count / peopleWaiting[0].count) * 100}%`, display: "block" }} />
+                </span>
+                <span className="hbar-count">{row.count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {data.tasks.some((task) => task.unfiled && isActive(task)) && (
+        <p className="hint">{data.tasks.filter((task) => task.unfiled && isActive(task)).length} in the catch pile.</p>
+      )}
+      {data.tasks.some((task) => task.returned && isActive(task)) && (
+        <section className="card">
+          <h2>Back now</h2>
+          {data.tasks
+            .filter((task) => task.returned && isActive(task))
+            .map((task) => (
+              <button key={task.id} className="person-row" onClick={() => onOpenTask(task)}>
+                <span className="person-name">{task.title}</span>
+              </button>
+            ))}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              for (const task of data.tasks.filter((item) => item.returned && isActive(item))) {
+                onAction(task, { type: "patch", patch: { returned: false, wake: "" } });
+              }
+            }}
+          >
+            Put them back on the list
+          </button>
+        </section>
+      )}
 
       {heavy && <p className="hint">{heavy}</p>}
 
@@ -310,6 +380,7 @@ export function Dashboard({
                 className={day.date === today ? "day today" : "day"}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => dropDue(event, day.date)}
+                onClick={() => onOpenDay?.(day.date)}
               >
                 <span className="day-name">{day.date === today ? "Today" : weekdayShort(day.date)}</span>
                 <span className="day-number">{dayNumber(day.date)}</span>
@@ -347,7 +418,7 @@ export function Dashboard({
               className={day.date === today ? "cal-day today" : "cal-day"}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => dropDue(event, day.date)}
-              onClick={() => undefined}
+              onClick={() => onOpenDay?.(day.date)}
             >
               <span>{dayNumber(day.date)}</span>
               <span className="cal-count" style={{ opacity: day.count === 0 ? 0.35 : 0.35 + (day.count / weekMax) * 0.65 }}>
@@ -360,54 +431,6 @@ export function Dashboard({
 
       {openCount > 0 && (
         <>
-          <div className="charts">
-            <section className="card">
-              <h2>Tasks due in the next seven days</h2>
-              <p className="takeaway">
-                {fullestDayLine(
-                  days.map((day) => ({ date: day.date, count: day.tasks })),
-                  today,
-                )}
-              </p>
-              <div className="vbars">
-                {days.map((day) => (
-                  <div key={day.date} className="vbar">
-                    <span className="vbar-count">{day.tasks}</span>
-                    <div className="vbar-track">
-                      <div
-                        className={day.tasks === 0 ? "vbar-fill empty" : "vbar-fill"}
-                        style={{ height: `${(day.tasks / Math.max(1, ...days.map((item) => item.tasks))) * 100}%` }}
-                      />
-                    </div>
-                    <span className="vbar-label">{day.date === today ? "Today" : weekdayShort(day.date)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="card">
-              <h2>Who is waiting</h2>
-              <p className="takeaway">{waitingLine(peopleWaiting)}</p>
-              {peopleWaiting.length === 0 ? (
-                <p className="quiet">No open tasks are tied to a person yet.</p>
-              ) : (
-                <div className="hbars">
-                  {peopleWaiting.map((row) => (
-                    <button key={row.person.id} className="hbar" onClick={() => onOpenPerson(row.person.id)}>
-                      <span className="hbar-name">{row.person.name}</span>
-                      <span className="hbar-track">
-                        <span
-                          className="hbar-fill"
-                          style={{ width: `${(row.count / peopleWaiting[0].count) * 100}%`, display: "block" }}
-                        />
-                      </span>
-                      <span className="hbar-count">{row.count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-
           <div className="split">
             <section className="card">
               <h2>Waiting the longest</h2>
@@ -591,16 +614,27 @@ export function Dashboard({
       )}
 
       {GROUPS.map((group) => {
-        const tasks = groups[group.bucket].filter((task) => !task.pinned);
+        const soonPeople = new Set(
+          data.meetings
+            .filter((meeting) => meeting.meetingDate > today && meeting.meetingDate <= addDays(today, 3))
+            .map((meeting) => meeting.personId),
+        );
+        const tasks = groups[group.bucket]
+          .filter((task) => !task.pinned)
+          .sort((a, b) => Number(soonPeople.has(b.requesterId)) - Number(soonPeople.has(a.requesterId)));
         if (tasks.length === 0) return null;
         return (
-          <section key={group.id} id={group.id} className="section">
-            <h2 className="section-title">
+          <section key={group.id} id={group.id} className={group.bucket === "evening" ? "section evening-group" : "section"}>
+            <button
+              type="button"
+              className="section-title fold"
+              onClick={() => setFolded((current) => (current.includes(group.id) ? current.filter((id) => id !== group.id) : [...current, group.id]))}
+            >
               {group.bucket === "none" ? "No due date" : bucketLabel(group.bucket)}
               <span className="quiet"> · {tasks.length}</span>
-            </h2>
-            {group.bucket === "none" && <p className="quiet">Drag one of these onto a day.</p>}
-            {tasks.map(renderTask)}
+            </button>
+            {group.bucket === "none" && !folded.includes(group.id) && <p className="quiet">Drag one of these onto a day.</p>}
+            {!folded.includes(group.id) && tasks.map(renderTask)}
           </section>
         );
       })}

@@ -3,7 +3,6 @@ import {
   addDays,
   findPersonByName,
   formatDay,
-  nextMonday,
   openTasksForPerson,
   readDateInTitle,
   todayISO,
@@ -12,6 +11,7 @@ import {
   type RepeatRule,
 } from "./logic";
 import type { NewTaskInput, SaveMeetingInput } from "./db";
+import { BulletList, DueChips, linesFromText, type Line } from "./ui";
 
 const DRAFT_KEY = "todo-tracker.meeting-draft";
 
@@ -24,6 +24,12 @@ type Row = {
   dateTouched: boolean;
   evening: boolean;
   repeatRule: RepeatRule;
+  indent: number;
+  owner: "mine" | "theirs";
+  durationMin: number;
+  doOn: string | null;
+  clockTime: string;
+  sourceLine: string;
 };
 
 type Draft = {
@@ -32,6 +38,14 @@ type Draft = {
   title: string;
   meetingDate: string;
   note: string;
+  noteLines: Line[];
+  topicLines: Line[];
+  questionLines: Line[];
+  privateNote: string;
+  nextOn: string;
+  nextFocus: string;
+  spanEnd: string;
+  sourceUrl: string;
   rows: Row[];
   markDoneIds: string[];
   guestIds: string[];
@@ -41,6 +55,8 @@ type Draft = {
 type Props = {
   data: Data;
   presetPersonId: string | null;
+  presetDate?: string | null;
+  travelDates?: string[];
   busy: boolean;
   stayOpen: boolean;
   onDirty: (dirty: boolean) => void;
@@ -72,6 +88,12 @@ function blankRow(): Row {
     dateTouched: false,
     evening: false,
     repeatRule: null,
+    indent: 0,
+    owner: "mine",
+    durationMin: 0,
+    doOn: null,
+    clockTime: "",
+    sourceLine: "",
   };
 }
 
@@ -87,6 +109,14 @@ function readDraft(): Draft | null {
       title: parsed.title ?? "",
       meetingDate: parsed.meetingDate || todayISO(),
       note: parsed.note ?? "",
+      noteLines: parsed.noteLines?.length ? parsed.noteLines : linesFromText(parsed.note ?? ""),
+      topicLines: parsed.topicLines?.length ? parsed.topicLines : [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+      questionLines: parsed.questionLines?.length ? parsed.questionLines : [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+      privateNote: parsed.privateNote ?? "",
+      nextOn: parsed.nextOn ?? "",
+      nextFocus: parsed.nextFocus ?? "",
+      spanEnd: parsed.spanEnd ?? "",
+      sourceUrl: parsed.sourceUrl ?? "",
       rows: parsed.rows.map((row) => ({
         key: row.key || crypto.randomUUID(),
         title: row.title ?? "",
@@ -96,6 +126,12 @@ function readDraft(): Draft | null {
         dateTouched: Boolean(row.dateTouched),
         evening: Boolean(row.evening),
         repeatRule: row.repeatRule ?? null,
+        indent: row.indent ?? 0,
+        owner: row.owner === "theirs" ? "theirs" : "mine",
+        durationMin: row.durationMin ?? 0,
+        doOn: row.doOn ?? null,
+        clockTime: row.clockTime ?? "",
+        sourceLine: row.sourceLine ?? "",
       })),
       markDoneIds: Array.isArray(parsed.markDoneIds) ? parsed.markDoneIds : [],
       guestIds: Array.isArray(parsed.guestIds) ? parsed.guestIds : [],
@@ -119,6 +155,7 @@ function hasContent(draft: Draft, presetName: string): boolean {
   const typedPerson = draft.personText.trim() !== "" && draft.personText.trim() !== presetName;
   return Boolean(
     draft.title.trim() ||
+      draft.noteLines.some((line) => line.text.trim()) ||
       draft.note.trim() ||
       typedPerson ||
       draft.markDoneIds.length > 0 ||
@@ -128,21 +165,36 @@ function hasContent(draft: Draft, presetName: string): boolean {
   );
 }
 
-function initialDraft(people: Person[], presetPersonId: string | null): { draft: Draft; restored: boolean } {
+function initialDraft(
+  people: Person[],
+  presetPersonId: string | null,
+  presetDate: string | null,
+  travelDates: string[],
+): { draft: Draft; restored: boolean } {
   const preset = people.find((person) => person.id === presetPersonId) ?? null;
   const saved = readDraft();
   if (saved && hasContent(saved, preset?.name ?? "")) {
     const rows = saved.rows.length > 0 ? saved.rows : [blankRow(), blankRow()];
     return { draft: { ...saved, rows }, restored: true };
   }
+  let meetingDate = presetDate || todayISO();
+  if (travelDates.includes(meetingDate)) meetingDate = addDays(meetingDate, 1);
   return {
     restored: false,
     draft: {
       personText: preset?.name ?? "",
       personId: preset?.id ?? null,
       title: "",
-      meetingDate: todayISO(),
+      meetingDate,
       note: "",
+      noteLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+      topicLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+      questionLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+      privateNote: "",
+      nextOn: "",
+      nextFocus: "",
+      spanEnd: "",
+      sourceUrl: "",
       rows: [blankRow(), blankRow()],
       markDoneIds: [],
       guestIds: [],
@@ -151,11 +203,25 @@ function initialDraft(people: Person[], presetPersonId: string | null): { draft:
   };
 }
 
-export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, onClose, onSave, onSaveTemplate, onDeleteTemplate }: Props) {
+export function MeetingSheet({
+  data,
+  presetPersonId,
+  presetDate = null,
+  travelDates = [],
+  busy,
+  stayOpen,
+  onDirty,
+  onClose,
+  onSave,
+  onSaveTemplate,
+  onDeleteTemplate,
+}: Props) {
   const today = todayISO();
-  const starting = initialDraft(data.people, presetPersonId);
+  const starting = initialDraft(data.people, presetPersonId, presetDate, travelDates);
   const [draft, setDraft] = useState<Draft>(starting.draft);
   const [restored] = useState(starting.restored);
+  const [showRest, setShowRest] = useState(starting.restored);
+  const [speechNote, setSpeechNote] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
   const [templateName, setTemplateName] = useState("");
@@ -170,6 +236,22 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
   }, [draft, onDirty, presetName]);
 
   useEffect(() => {
+    if (!draft.personId) return;
+    if (draft.topicLines.some((line) => line.text.trim())) return;
+    const owned = data.bullets.filter(
+      (bullet) =>
+        bullet.kind === "topic" &&
+        !bullet.done &&
+        (bullet.ownerId === draft.personId ||
+          data.meetings.some((meeting) => meeting.personId === draft.personId && meeting.id === bullet.ownerId)),
+    );
+    if (owned.length === 0) return;
+    patch({
+      topicLines: owned.map((bullet) => ({ key: bullet.id, text: bullet.body, indent: bullet.indent })),
+    });
+  }, [data.bullets, data.meetings, draft.personId, draft.topicLines]);
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
     }
@@ -182,8 +264,6 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
     data.people.find((person) => person.id === draft.personId) ??
     null;
   const openTasks = resolved ? openTasksForPerson(data.tasks, data.meetings, resolved.id) : [];
-  const tomorrow = addDays(today, 1);
-  const monday = nextMonday(today);
   const query = draft.personText.trim().toLowerCase();
   const lastId = data.settings.lastPersonId;
   const matches = (query
@@ -214,10 +294,6 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
     setRow(key, { dueOn, dateTouched: true });
   }
 
-  function dueSelected(dueOn: string | null, choice: string | null): boolean {
-    return dueOn === choice;
-  }
-
   async function save(event?: { preventDefault: () => void }) {
     event?.preventDefault();
     const match = findPersonByName(data.people, draft.personText);
@@ -245,8 +321,31 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
           dueOn: row.dueOn ?? reading?.date ?? null,
           evening: row.evening || Boolean(reading?.evening),
           repeatRule: row.repeatRule,
+          indent: row.indent,
+          owner: row.owner,
+          durationMin: row.durationMin,
+          doOn: row.doOn,
+          clockTime: row.clockTime,
+          sourceLine: row.sourceLine,
         };
       });
+    const decisionLines = draft.decisionText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const decisions: string[] = [];
+    const decisionWhys: string[] = [];
+    for (const line of decisionLines) {
+      if (/^why:/i.test(line) && decisions.length > 0) decisionWhys[decisions.length - 1] = line.replace(/^why:\s*/i, "");
+      else {
+        decisions.push(line);
+        decisionWhys.push("");
+      }
+    }
+    const note = draft.noteLines
+      .map((line) => `${"  ".repeat(line.indent)}${line.text.trim()}`)
+      .filter((line) => line.trim())
+      .join("\n");
     setError("");
     try {
       await onSave({
@@ -254,17 +353,30 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
         newPersonName: newName,
         title: draft.title,
         meetingDate: draft.meetingDate,
-        note: draft.note,
+        note,
+        noteLines: draft.noteLines,
+        topics: draft.topicLines,
+        questions: draft.questionLines,
+        privateNote: draft.privateNote,
+        nextOn: draft.nextOn || null,
+        nextFocus: draft.nextFocus,
+        spanEnd: draft.spanEnd || null,
+        sourceUrl: draft.sourceUrl,
         tasks,
         markDoneIds: draft.markDoneIds.filter((taskId) => openTasks.some((task) => task.id === taskId)),
         guestIds: draft.guestIds,
-        decisions: draft.decisionText.split("\n"),
+        decisions,
+        decisionWhys,
       });
       if (stayOpen) {
         const cleared = {
           ...draft,
           title: "",
           note: "",
+          noteLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+          topicLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+          questionLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
+          privateNote: "",
           decisionText: "",
           rows: [blankRow(), blankRow()],
           markDoneIds: [],
@@ -287,6 +399,12 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
   }
 
   function onTaskKey(event: ReactKeyboardEvent<HTMLInputElement>, index: number) {
+    if (event.key === "Tab") {
+      event.preventDefault();
+      const row = draft.rows[index];
+      setRow(row.key, { indent: Math.max(0, Math.min(6, row.indent + (event.shiftKey ? -1 : 1))) });
+      return;
+    }
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (index === draft.rows.length - 1) {
@@ -306,11 +424,35 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
             event.preventDefault();
             void save();
           }
+          if (event.key !== "Tab") return;
+          const root = event.currentTarget;
+          const items = Array.from(root.querySelectorAll<HTMLElement>("input, textarea, select, button")).filter(
+            (item) => item.tabIndex >= 0 && !item.hasAttribute("disabled"),
+          );
+          if (items.length === 0) return;
+          const first = items[0];
+          const last = items[items.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
         }}
       >
         <h2>New meeting</h2>
         {restored && <p className="hint">Picking up where you left off.</p>}
-
+        {!showRest && (
+          <p className="hint">
+            Start with the note. The person, the date, and the tasks appear when you leave it.{" "}
+            <button type="button" className="text-button" onClick={() => setShowRest(true)}>
+              Show them now
+            </button>
+          </p>
+        )}
+        {showRest && (
+        <>
         <label className="field">
           <span>Person</span>
           <input
@@ -436,15 +578,60 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
             </div>
           </fieldset>
         )}
+        </>
+        )}
 
-        <label className="field">
-          <span>Note</span>
-          <textarea
-            value={draft.note}
-            placeholder="Anything you want to remember"
-            onChange={(event) => patch({ note: event.target.value })}
+        <div
+          className="field"
+          onBlur={(event) => {
+            const next = event.relatedTarget as Node | null;
+            if (!next || !event.currentTarget.contains(next)) setShowRest(true);
+          }}
+        >
+          <span className="section-label">Notes</span>
+          <p className="hint">Notes stay notes. Tab indents a line. Shift-Tab pulls it back. Enter adds the next line.</p>
+          <BulletList
+            label="Meeting notes"
+            placeholder="A note from the meeting"
+            lines={draft.noteLines}
+            onChange={(noteLines) => patch({ noteLines })}
           />
-        </label>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              const Speech = (window as unknown as { webkitSpeechRecognition?: new () => { start: () => void; onresult: ((event: { results: { 0: { 0: { transcript: string } } } }) => void) | null } }).webkitSpeechRecognition;
+              if (!Speech) {
+                setSpeechNote("This Mac did not offer dictation here. Type the note, or turn Dictation on in Keyboard settings.");
+                return;
+              }
+              setSpeechNote("Listening…");
+              const heard = new Speech();
+              heard.onresult = (event) => {
+                const text = event.results[0][0].transcript;
+                patch({ noteLines: [...draft.noteLines, { key: crypto.randomUUID(), text, indent: 0 }] });
+              };
+              heard.start();
+            }}
+          >
+            Speak a note
+          </button>
+          {speechNote && <p className="hint">{speechNote}</p>}
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              const line = [...draft.noteLines].reverse().find((item) => item.text.trim());
+              if (!line) return;
+              patch({
+                rows: [...draft.rows, { ...blankRow(), title: line.text.trim(), indent: line.indent, sourceLine: line.text.trim() }],
+              });
+              setShowRest(true);
+            }}
+          >
+            Make the last note a task
+          </button>
+        </div>
 
         {openTasks.length > 0 && (
           <section className="open-list">
@@ -474,24 +661,81 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
           </section>
         )}
 
-        <label className="field">
-          <span>Decisions</span>
-          <textarea
-            value={draft.decisionText}
-            placeholder="One decision per line"
-            onChange={(event) => patch({ decisionText: event.target.value })}
-          />
-        </label>
+        <details className="more-block">
+          <summary>More about this meeting</summary>
+          <label className="field">
+            <span>Decisions</span>
+            <textarea
+              value={draft.decisionText}
+              placeholder="One decision per line. Add why on the next line if you want."
+              onChange={(event) => patch({ decisionText: event.target.value })}
+            />
+          </label>
+          <div className="field">
+            <span className="section-label">Topics to talk about</span>
+            <BulletList label="Topics" placeholder="A topic, not a task" lines={draft.topicLines} onChange={(topicLines) => patch({ topicLines })} />
+          </div>
+          <div className="field">
+            <span className="section-label">Questions still open</span>
+            <BulletList label="Questions" placeholder="Something the meeting did not settle" lines={draft.questionLines} onChange={(questionLines) => patch({ questionLines })} />
+          </div>
+          <label className="field">
+            <span>Private note</span>
+            <textarea value={draft.privateNote} placeholder="Only for you. Left out of the brief and of files you save." onChange={(event) => patch({ privateNote: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>Next meeting date</span>
+            {draft.nextOn ? (
+              <input type="date" value={draft.nextOn} onChange={(event) => patch({ nextOn: event.target.value })} />
+            ) : (
+              <button type="button" className="chip" onClick={() => patch({ nextOn: addDays(today, 7) })}>
+                Set the next meeting
+              </button>
+            )}
+          </label>
+          <label className="field">
+            <span>What the next meeting should cover</span>
+            <input value={draft.nextFocus} onChange={(event) => patch({ nextFocus: event.target.value })} />
+          </label>
+          <label className="field">
+            <span>This meeting covers until</span>
+            {draft.spanEnd ? (
+              <input type="date" value={draft.spanEnd} onChange={(event) => patch({ spanEnd: event.target.value })} />
+            ) : (
+              <button type="button" className="chip" onClick={() => patch({ spanEnd: addDays(draft.meetingDate || today, 1) })}>
+                It covers more than one day
+              </button>
+            )}
+          </label>
+          <label className="field">
+            <span>Link back to the mail or page</span>
+            <input value={draft.sourceUrl} placeholder="https://" onChange={(event) => patch({ sourceUrl: event.target.value })} />
+          </label>
+        </details>
 
         <h3 className="section-label">Tasks from this meeting</h3>
+        <div className="chips drop-days">
+          {Array.from({ length: 7 }, (_, offset) => addDays(today, offset)).map((date) => (
+            <button
+              key={date}
+              type="button"
+              className={draft.meetingDate === date ? "chip selected" : "chip"}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                const key = event.dataTransfer.getData("text/task-key");
+                if (key) setRow(key, { dueOn: date, dateTouched: true });
+              }}
+              onClick={() => patch({ meetingDate: date })}
+            >
+              {date === today ? "Today" : formatDay(date, today)}
+            </button>
+          ))}
+        </div>
         {draft.rows.map((row, index) => {
-          const custom =
-            row.dueOn !== null &&
-            row.dueOn !== today &&
-            row.dueOn !== tomorrow &&
-            row.dueOn !== monday;
           return (
             <div className="task-draft" key={row.key}>
+              <div className="bullet-row" style={{ paddingLeft: row.indent * 22 }}>
+              <span className="bullet-mark" aria-hidden="true">•</span>
               <input
                 type="text"
                 placeholder="What needs doing?"
@@ -502,13 +746,21 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
                 onChange={(event) => setRow(row.key, { title: event.target.value, keptWords: false })}
                 onKeyDown={(event) => onTaskKey(event, index)}
               />
+              </div>
               {(() => {
                 const reading = !row.keptWords && !row.dateTouched ? readDateInTitle(row.title, today) : null;
                 if (!reading) return null;
                 return (
-                  <p className="hint">
+                  <p
+                    className="hint"
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/due-preview", reading.date);
+                      event.dataTransfer.setData("text/task-key", row.key);
+                    }}
+                  >
                     Read as due {formatDay(reading.date, today)}
-                    {reading.evening ? ", this evening" : ""}.{" "}
+                    {reading.evening ? ", this evening" : ""}. Drag this line onto a day.{" "}
                     <button type="button" className="text-button" onClick={() => setRow(row.key, { keptWords: true })}>
                       Keep the words
                     </button>
@@ -533,48 +785,52 @@ export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, on
                       ))}
                   </select>
                 </label>
+                <DueChips dueOn={row.dueOn} today={today} index={index} onChoose={(dueOn) => chooseDue(row.key, dueOn)} />
                 <div className="chips">
-                  <button
-                    type="button"
-                    className={dueSelected(row.dueOn, today) ? "chip selected" : "chip"}
-                    aria-label={`Due today for task ${index + 1}`}
-                    onClick={() => chooseDue(row.key, today)}
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    className={dueSelected(row.dueOn, tomorrow) ? "chip selected" : "chip"}
-                    aria-label={`Due tomorrow for task ${index + 1}`}
-                    onClick={() => chooseDue(row.key, tomorrow)}
-                  >
-                    Tomorrow
-                  </button>
-                  {monday !== tomorrow && (
-                    <button
-                      type="button"
-                      className={dueSelected(row.dueOn, monday) ? "chip selected" : "chip"}
-                      onClick={() => chooseDue(row.key, monday)}
-                    >
-                      Next Monday
+                  {row.doOn ? (
+                    <label>
+                      <span className="sr-only">Do this on</span>
+                      <input
+                        type="date"
+                        aria-label={`Do task ${index + 1} on`}
+                        value={row.doOn}
+                        onChange={(event) => setRow(row.key, { doOn: event.target.value || null })}
+                      />
+                    </label>
+                  ) : (
+                    <button type="button" className="chip" onClick={() => setRow(row.key, { doOn: today })}>
+                      Day I'll do it
                     </button>
                   )}
-                  <label className={custom ? "chip selected" : "chip"}>
-                    Pick a date
+                  <label>
+                    <span className="sr-only">Clock time</span>
                     <input
-                      className="sr-only"
-                      type="date"
-                      value={custom ? row.dueOn ?? "" : ""}
-                      onChange={(event) => chooseDue(row.key, event.target.value || null)}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Clock, 17:00"
+                      aria-label={`Clock time for task ${index + 1}`}
+                      value={row.clockTime}
+                      onChange={(event) => setRow(row.key, { clockTime: event.target.value })}
                     />
                   </label>
-                  <button
-                    type="button"
-                    className={row.dueOn === null ? "chip selected" : "chip"}
-                    onClick={() => chooseDue(row.key, null)}
+                  <select
+                    aria-label={`Who does task ${index + 1}`}
+                    value={row.owner}
+                    onChange={(event) => setRow(row.key, { owner: event.target.value === "theirs" ? "theirs" : "mine" })}
                   >
-                    No date
-                  </button>
+                    <option value="mine">Mine to do</option>
+                    <option value="theirs">Theirs to do</option>
+                  </select>
+                  <select
+                    aria-label={`How long for task ${index + 1}`}
+                    value={String(row.durationMin)}
+                    onChange={(event) => setRow(row.key, { durationMin: Number(event.target.value) })}
+                  >
+                    <option value="0">No length</option>
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="60">1 hour</option>
+                  </select>
                   <select
                     aria-label={`Repeats for task ${index + 1}`}
                     value={row.repeatRule ?? ""}

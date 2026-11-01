@@ -6,10 +6,13 @@ import {
   personName,
   prepFor,
   shortcutList,
+  todayISO,
   type Data,
   type Task,
   type TaskStatus,
 } from "./logic";
+import { hoursLine, startLine } from "./tools";
+import { BarChart } from "./ui";
 
 type Command = { id: string; label: string; hint: string; run: () => void };
 
@@ -32,7 +35,7 @@ export function Palette({
   onPerson: (personId: string) => void;
   onTask: (task: Task) => void;
   onDone: (task: Task) => void;
-  onScreen: (name: "home" | "people" | "review" | "archive" | "settings") => void;
+  onScreen: (name: "home" | "people" | "review" | "archive" | "settings" | "day" | "boxes" | "someday") => void;
   onLog: () => void;
   onPrint: () => void;
   onToggleTheme: () => void;
@@ -48,6 +51,9 @@ export function Palette({
       { id: "review", label: "Review", hint: "Go", run: () => onScreen("review") },
       { id: "archive", label: "Set aside", hint: "Go", run: () => onScreen("archive") },
       { id: "settings", label: "Settings", hint: "Go", run: () => onScreen("settings") },
+      { id: "day", label: "Today", hint: "Go", run: () => onScreen("day") },
+      { id: "boxes", label: "Four boxes", hint: "Go", run: () => onScreen("boxes") },
+      { id: "someday", label: "Someday", hint: "Go", run: () => onScreen("someday") },
       { id: "print", label: "Print", hint: "File", run: onPrint },
       {
         id: "theme",
@@ -158,6 +164,20 @@ export function ReviewPage({
     <>
       <h1 className="page-title">Review</h1>
       <p className="page-sub">Walk each person and decide whether the open tasks are still real.</p>
+      {hoursLine(data, today) && (
+        <section className="card">
+          <h2>Time this week</h2>
+          <p>{hoursLine(data, today)}</p>
+        </section>
+      )}
+      {startLine(data).length > 0 && (
+        <section className="card">
+          <h2>You can start</h2>
+          {startLine(data).map((task) => (
+            <p key={task.id}>{task.title}</p>
+          ))}
+        </section>
+      )}
       {people.length === 0 && <p className="empty">Nothing is waiting on a review.</p>}
       {person && (
         <section className="card">
@@ -279,6 +299,27 @@ export function BriefPage({
           <p>{prep.note}</p>
         </section>
       )}
+      <BarChart
+        title="Open and finished"
+        rows={[
+          { label: "Open", count: prep.open.length },
+          { label: "Finished", count: prep.finishedSince.length },
+        ]}
+      />
+      {prep.nextFocus && (
+        <section className="card">
+          <h2>Next time</h2>
+          <p>{prep.nextFocus}</p>
+        </section>
+      )}
+      {prep.questions.length > 0 && (
+        <section className="card">
+          <h2>Questions still open</h2>
+          {prep.questions.map((question) => (
+            <p key={question}>{question}</p>
+          ))}
+        </section>
+      )}
       <section className="card">
         <h2>Still open</h2>
         {prep.open.length === 0 && <p className="quiet">Nothing is open.</p>}
@@ -318,6 +359,11 @@ export function SettingsPage({
   onKeep,
   onHide,
   onSort,
+  onContrast,
+  onWeekday,
+  onValue,
+  onSay,
+  onCard,
   onBackup,
   onRestore,
   onExportText,
@@ -330,6 +376,11 @@ export function SettingsPage({
   onKeep: () => void;
   onHide: () => void;
   onSort: () => void;
+  onContrast: () => void;
+  onWeekday: () => void;
+  onValue: (key: string, value: string) => void;
+  onSay: () => void;
+  onCard: () => void;
   onBackup: () => void;
   onRestore: (id: string) => void;
   onExportText: () => void;
@@ -350,7 +401,11 @@ export function SettingsPage({
           <button type="button" className={settings.typeSize === "large" ? "chip selected" : "chip"} onClick={onType}>
             {settings.typeSize === "large" ? "Larger type on" : "Larger type"}
           </button>
+          <button type="button" className={settings.contrast ? "chip selected" : "chip"} onClick={onContrast}>
+            {settings.contrast ? "Stronger contrast on" : "Stronger contrast"}
+          </button>
         </div>
+        <p className="quiet">Late is written next to the red, so color is not the only signal.</p>
       </section>
       <section className="card">
         <h2>Logging meetings</h2>
@@ -364,7 +419,57 @@ export function SettingsPage({
           <button type="button" className={settings.sortClosest ? "chip selected" : "chip"} onClick={onSort}>
             {settings.sortClosest ? "Closest to done sits first" : "Sort closest to done first"}
           </button>
+          <button type="button" className={settings.weekdayOnly ? "chip selected" : "chip"} onClick={onWeekday}>
+            {settings.weekdayOnly ? "Weekend items wait until Monday" : "Hold weekend items until Monday"}
+          </button>
         </div>
+        <label className="field">
+          <span>Hour for a day-only nudge</span>
+          <input defaultValue={settings.pingHour} onBlur={(event) => onValue("pingHour", event.target.value || "09:00")} />
+        </label>
+        <label className="field">
+          <span>When a day-only item starts to count as late</span>
+          <input defaultValue={settings.readyHour} onBlur={(event) => onValue("readyHour", event.target.value || "09:00")} />
+        </label>
+        <label className="field">
+          <span>Hours you want for follow-ups this week</span>
+          <input defaultValue={settings.weekHours || ""} onBlur={(event) => onValue("weekHours", event.target.value)} />
+        </label>
+        <label className="field">
+          <span>Away from</span>
+          {settings.awayFrom ? (
+            <input type="date" defaultValue={settings.awayFrom} onChange={(event) => onValue("awayFrom", event.target.value)} />
+          ) : (
+            <button type="button" className="chip" onClick={() => onValue("awayFrom", todayISO())}>
+              I am away
+            </button>
+          )}
+        </label>
+        <label className="field">
+          <span>Away until</span>
+          {settings.awayUntil ? (
+            <input type="date" defaultValue={settings.awayUntil} onChange={(event) => onValue("awayUntil", event.target.value)} />
+          ) : (
+            <button type="button" className="chip" onClick={() => onValue("awayUntil", todayISO())}>
+              Back on this day
+            </button>
+          )}
+        </label>
+      </section>
+      <section className="card">
+        <h2>Outside the window</h2>
+        <div className="chips">
+          <button type="button" className="chip" onClick={onSay}>
+            Say what is due
+          </button>
+          <button type="button" className="chip" onClick={onCard}>
+            Put today’s card on the desktop
+          </button>
+        </div>
+        <p className="quiet">
+          Command-Shift-N logs a meeting from anywhere. Command-Shift-Y says what is due. The menu bar icon lists today’s names.
+          A file named Due today sits in Documents, so Spotlight can find a person or a due item. This app cannot add a Dock menu, so that same list lives in the menu bar.
+        </p>
       </section>
       <section className="card">
         <h2>Backup</h2>

@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  addAsk,
   addCompany,
+  addDayLog,
   addDecision,
+  addGift,
+  addLifeDate,
+  addLooseTask,
   addPerson,
+  addSection,
   applyTask,
   deleteDecision,
   deleteMeeting,
@@ -12,12 +18,14 @@ import {
   loadAll,
   openDatabase,
   replaceAll,
+  replaceBullets,
   restoreRemoved,
   saveMeeting,
   saveTemplate,
   saveView,
   setManyDue,
   setManyStatus,
+  patchTask,
   setSetting,
   undoSave,
   updateGuests,
@@ -39,6 +47,7 @@ import {
   personOpenText,
   savedLine,
   todayISO,
+  tasksForHome,
   type Data,
   type Meeting,
   type Task,
@@ -48,6 +57,7 @@ import { MeetingSheet } from "./MeetingSheet";
 import { People } from "./People";
 import { PersonPage } from "./PersonPage";
 import { ArchivePage, BriefPage, Palette, ReviewPage, SettingsPage } from "./pages";
+import { BoxesPage, DayPage, SomedayPage } from "./tools";
 import { SearchResults } from "./SearchResults";
 import {
   backupNow,
@@ -55,12 +65,19 @@ import {
   notifyDue,
   onLogMeeting,
   onShowPerson,
+  cardFromUrl,
+  onSayDue,
+  onShowTask,
   openBeside,
+  openCard,
   personFromUrl,
   pickAndStoreFile,
   saveTextFile,
+  sayText,
   setMenuCount,
+  setTrayMenu,
   watchClose,
+  writeSpotlight,
   type CalEvent,
 } from "./native";
 import type Database from "@tauri-apps/plugin-sql";
@@ -72,7 +89,10 @@ type Screen =
   | { name: "review" }
   | { name: "archive" }
   | { name: "brief"; personId: string }
-  | { name: "settings" };
+  | { name: "settings" }
+  | { name: "day" }
+  | { name: "boxes" }
+  | { name: "someday" };
 
 type Toast = { message: string; undo: (() => Promise<void>) | null };
 
@@ -87,6 +107,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetPersonId, setSheetPersonId] = useState<string | null>(null);
+  const [sheetDate, setSheetDate] = useState<string | null>(null);
+  const woke = useRef(false);
   const [sheetDirty, setSheetDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -206,12 +228,18 @@ export default function App() {
     if (!data) return;
     document.documentElement.dataset.theme = data.settings.theme;
     document.documentElement.dataset.type = data.settings.typeSize;
-    const groups = groupOpen(data.tasks, today);
+    document.documentElement.dataset.contrast = data.settings.contrast ? "more" : "off";
+    const groups = groupOpen(tasksForHome(data, today), today);
     const text =
       groups.overdue.length === 0 && groups.today.length === 0
         ? "To-Do Tracker · All caught up"
         : `To-Do Tracker · ${groups.overdue.length} overdue, ${groups.today.length} due today`;
     void setMenuCount(text);
+    const due = tasksForHome(data, today).filter((task) => task.dueOn && task.dueOn <= today);
+    void setTrayMenu(due.slice(0, 8).map((task) => ({ id: task.id, label: task.title })));
+    void writeSpotlight(
+      ["Due", ...due.map((task) => task.title), "", "People", ...data.people.map((person) => person.name)].join("\n"),
+    );
   }, [data, today]);
 
   useEffect(() => {
@@ -249,8 +277,9 @@ export default function App() {
     if (!data.people.some((person) => person.id === screen.personId)) setScreen({ name: "home" });
   }, [data, screen]);
 
-  const openSheet = useCallback((personId: string | null) => {
+  const openSheet = useCallback((personId: string | null, date?: string) => {
     setSheetPersonId(personId);
+    setSheetDate(date ?? null);
     setSheetOpen(true);
   }, []);
 
@@ -278,6 +307,67 @@ export default function App() {
     });
     return () => unlisten?.();
   }, [openSheet]);
+
+  useEffect(() => {
+    let stop = () => undefined as void;
+    void onShowTask((taskId) => {
+      const current = dataRef.current;
+      const task = current?.tasks.find((item) => item.id === taskId);
+      if (!task) return;
+      const meeting = current?.meetings.find((item) => item.id === task.meetingId);
+      setQuery("");
+      if (meeting) setScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
+      else if (task.requesterId) setScreen({ name: "person", personId: task.requesterId });
+    }).then((fn) => {
+      stop = fn;
+    });
+    return () => stop();
+  }, []);
+
+  useEffect(() => {
+    let stop = () => undefined as void;
+    void onSayDue(() => {
+      const current = dataRef.current;
+      if (!current) return;
+      const line = tasksForHome(current, todayISO())
+        .filter((task) => task.dueOn && task.dueOn <= todayISO())
+        .map((task) => task.title)
+        .join(". ");
+      void sayText(line || "Nothing is due");
+    }).then((fn) => {
+      stop = fn;
+    });
+    return () => stop();
+  }, []);
+
+  useEffect(() => {
+    if (!data || !db || woke.current) return;
+    woke.current = true;
+    const waiting = data.tasks.filter((task) => task.wake === "open");
+    if (waiting.length === 0) return;
+    void mutate(async (database) => {
+      for (const task of waiting) await patchTask(database, task.id, { wake: "", returned: true });
+    });
+  }, [data, db, mutate]);
+
+  useEffect(() => {
+    if (!data || !navigator.geolocation) return;
+    const places = data.people.filter((person) => person.place && person.place.includes(","));
+    if (places.length === 0) return;
+    const watch = navigator.geolocation.watchPosition((position) => {
+      for (const person of places) {
+        const [lat, lng] = (person.place ?? "").split(",").map(Number);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const distance = Math.hypot(position.coords.latitude - lat, position.coords.longitude - lng);
+        const near = distance < 0.003;
+        const key = `todo-tracker.near.${person.id}`;
+        const was = localStorage.getItem(key) === "1";
+        if (near !== was) void notifyDue(near ? `You are near ${person.name}` : `You left ${person.name}`);
+        localStorage.setItem(key, near ? "1" : "0");
+      }
+    });
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [data]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -310,6 +400,23 @@ export default function App() {
       } else if (meta && key === "p") {
         event.preventDefault();
         window.print();
+      } else if (meta && event.shiftKey && key === "v" && !typing) {
+        event.preventDefault();
+        void navigator.clipboard.readText().then((text) => {
+          const line = text
+            .split("\n")
+            .map((item) => item.trim())
+            .find(Boolean);
+          const current = dataRef.current;
+          if (!line || !current) return;
+          const latest = [...current.meetings].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+          const personId = current.settings.onlyPersonId || latest?.personId || null;
+          void mutate((database) => addLooseTask(database, personId, line, text));
+          showToast(
+            { message: personId ? "Saved that line for the last person." : "Saved that line in the catch pile.", undo: null },
+            4000,
+          );
+        });
       } else if (meta && key === "z") {
         if (typing) return;
         event.preventDefault();
@@ -326,12 +433,17 @@ export default function App() {
 
   function openTask(task: Task) {
     const meeting = data?.meetings.find((item) => item.id === task.meetingId);
-    if (!meeting) return;
     setQuery("");
-    setScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
+    if (meeting) setScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
+    else if (task.requesterId) setScreen({ name: "person", personId: task.requesterId });
+    else setScreen({ name: "someday" });
   }
 
   async function onTask(task: Task, action: TaskAction) {
+    if (action.type === "ask") {
+      await mutate((database) => addLooseTask(database, action.personId, action.title, ""));
+      return;
+    }
     if (action.type === "attach" && !action.path) {
       const file = await pickAndStoreFile();
       if (!file) return;
@@ -358,7 +470,10 @@ export default function App() {
       }
       showToast(
         {
-          message: savedLine(result.taskCount),
+          message:
+            events.filter((item) => item.date === input.meetingDate).length >= 3
+              ? `${savedLine(result.taskCount)} That day already looks full.`
+              : savedLine(result.taskCount),
           undo: async () => {
             await undoMeeting(result, input.markDoneIds);
           },
@@ -392,6 +507,37 @@ export default function App() {
 
   const searching = query.trim().length > 0;
   const personId = screen.name === "person" || screen.name === "brief" ? screen.personId : null;
+  const focusId = new URLSearchParams(window.location.search).get("task");
+
+  if (focusId && data) {
+    const task = data.tasks.find((item) => item.id === focusId);
+    return (
+      <div className="card-app">
+        <h1>{task?.title ?? "That follow-up is gone"}</h1>
+        {task && task.status !== "done" && (
+          <button className="primary" type="button" onClick={() => void onTask(task, { type: "status", status: "done" })}>
+            Done
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (cardFromUrl() && data) {
+    const due = tasksForHome(data, today).filter((task) => task.dueOn && task.dueOn <= today);
+    return (
+      <div className="card-app">
+        <h1>Due</h1>
+        {due.length === 0 && <p>Nothing is due.</p>}
+        {due.map((task) => (
+          <label key={task.id} className="open-item">
+            <input type="checkbox" onChange={() => void onTask(task, { type: "status", status: "done" })} />
+            <span>{task.title}</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -408,6 +554,9 @@ export default function App() {
               ["people", "People"],
               ["review", "Review"],
               ["archive", "Set aside"],
+              ["day", "Today"],
+              ["boxes", "Four boxes"],
+              ["someday", "Someday"],
             ] as const
           ).map(([name, label]) => (
             <button
@@ -458,6 +607,7 @@ export default function App() {
               onOpenTask={openTask}
               onOpenPerson={(id) => setScreen({ name: "person", personId: id })}
               onLog={(id) => openSheet(id ?? null)}
+              onOpenDay={(date) => openSheet(null, date)}
               onAction={(task, action) => void onTask(task, action)}
               onCheckIn={(id, kind) =>
                 void mutate((database) =>
@@ -532,6 +682,29 @@ export default function App() {
                     showToast({ message: "Could not open a second window.", undo: null }, 4000),
                   );
                 },
+                onGift: (body) => void mutate((database) => addGift(database, screen.personId, body)),
+                onDate: (label, onDate) => void mutate((database) => addLifeDate(database, screen.personId, label, onDate)),
+                onAsk: (body, onDate) => void mutate((database) => addAsk(database, screen.personId, body, onDate)),
+                onSection: (name) => void mutate((database) => addSection(database, screen.personId, name)),
+                onOnly: () => setting("onlyPersonId", data.settings.onlyPersonId === screen.personId ? "" : screen.personId),
+                onMessage: () =>
+                  showToast(
+                    {
+                      message: `Open asks for ${data.people.find((person) => person.id === screen.personId)?.name ?? "them"} are on this page.`,
+                      undo: null,
+                    },
+                    4000,
+                  ),
+                onDropText: (title, note) => void mutate((database) => addLooseTask(database, screen.personId, title, note)),
+                onTopic: (text) =>
+                  void mutate((database) =>
+                    replaceBullets(database, "person", screen.personId, "topic", [
+                      ...(data.bullets ?? [])
+                        .filter((bullet) => bullet.ownerKind === "person" && bullet.ownerId === screen.personId && bullet.kind === "topic")
+                        .map((bullet) => ({ text: bullet.body, indent: bullet.indent })),
+                      { text, indent: 0 },
+                    ]),
+                  ),
                 onExport: () => void exportText(personOpenText(data, screen.personId, today), "open-tasks.txt"),
                 onExportMeeting: (meetingId) => void exportText(meetingText(data, meetingId, today), "meeting.txt"),
                 onToggleHide: () => setting("hideFinished", data.settings.hideFinished ? "0" : "1"),
@@ -554,6 +727,18 @@ export default function App() {
               onOpen={openTask}
             />
           )}
+          {data && !searching && screen.name === "day" && (
+            <DayPage
+              data={data}
+              today={today}
+              onLog={(kind, body) => void mutate((database) => addDayLog(database, today, kind, body))}
+              onCarry={(ids) => void mutate((database) => setManyDue(database, ids, addDays(today, 1)))}
+              onAdd={(body) => void mutate((database) => addLooseTask(database, null, body, ""))}
+              onOpenTask={openTask}
+            />
+          )}
+          {data && !searching && screen.name === "boxes" && <BoxesPage data={data} today={today} onOpenTask={openTask} />}
+          {data && !searching && screen.name === "someday" && <SomedayPage data={data} onOpenTask={openTask} />}
           {data && !searching && screen.name === "brief" && (
             <BriefPage data={data} personId={screen.personId} today={today} onBack={() => setScreen({ name: "person", personId: screen.personId })} />
           )}
@@ -565,6 +750,18 @@ export default function App() {
               onKeep={() => setting("keepSheetOpen", data.settings.keepSheetOpen ? "0" : "1")}
               onHide={() => setting("hideFinished", data.settings.hideFinished ? "0" : "1")}
               onSort={() => setting("sortClosest", data.settings.sortClosest ? "0" : "1")}
+              onContrast={() => setting("contrast", data.settings.contrast ? "0" : "1")}
+              onWeekday={() => setting("weekdayOnly", data.settings.weekdayOnly ? "0" : "1")}
+              onValue={(key, value) => setting(key, value)}
+              onSay={() =>
+                void sayText(
+                  tasksForHome(data, today)
+                    .filter((task) => task.dueOn && task.dueOn <= today)
+                    .map((task) => task.title)
+                    .join(". ") || "Nothing is due",
+                )
+              }
+              onCard={() => void openCard()}
               onBackup={() =>
                 void backupNow(`todo-tracker-${today}.db`)
                   .then((path) => mutate((database) => setSetting(database, "backupPath", path)))
@@ -588,6 +785,8 @@ export default function App() {
         <MeetingSheet
           data={data}
           presetPersonId={sheetPersonId}
+          presetDate={sheetDate}
+          travelDates={events.filter((item) => /travel|offsite|flight|ooo/i.test(item.title)).map((item) => item.date)}
           busy={busy}
           stayOpen={data.settings.keepSheetOpen}
           onDirty={setSheetDirty}

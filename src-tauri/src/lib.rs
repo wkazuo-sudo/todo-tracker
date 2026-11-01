@@ -2,7 +2,8 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_sql::{Migration, MigrationKind};
@@ -172,18 +173,68 @@ fn copy_attachment(app: tauri::AppHandle, source: String) -> Result<String, Stri
     Ok(dest.to_string_lossy().into_owned())
 }
 
+#[derive(serde::Deserialize)]
+struct TrayLine {
+    id: String,
+    label: String,
+}
+
+#[tauri::command]
+fn set_tray_menu(app: tauri::AppHandle, lines: Vec<TrayLine>) -> Result<(), String> {
+    let open = MenuItem::with_id(&app, "open-app", "Open To-Do Tracker", true, None::<&str>).map_err(|err| err.to_string())?;
+    let log = MenuItem::with_id(&app, "log-meeting", "Log a meeting", true, None::<&str>).map_err(|err| err.to_string())?;
+    let mut owned = vec![open, log];
+    for line in lines.into_iter().take(8) {
+        let label: String = line.label.chars().take(80).collect();
+        let id = format!("task-{}", line.id);
+        owned.push(MenuItem::with_id(&app, &id, label, true, None::<&str>).map_err(|err| err.to_string())?);
+    }
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = owned.iter().map(|item| item as _).collect();
+    let menu = Menu::with_items(&app, &refs).map_err(|err| err.to_string())?;
+    if let Some(tray) = app.tray_by_id("tray") {
+        tray.set_menu(Some(menu)).map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn write_spotlight(app: tauri::AppHandle, contents: String) -> Result<(), String> {
+    let base = match app.path().document_dir() {
+        Ok(dir) => dir,
+        Err(_) => app.path().app_config_dir().map_err(|err| err.to_string())?,
+    };
+    let dir = base.join("To-Do Tracker");
+    std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    std::fs::write(dir.join("Due today.txt"), contents).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn say_text(text: String) -> Result<(), String> {
+    let clean: String = text.chars().take(400).collect();
+    if clean.trim().is_empty() {
+        return Ok(());
+    }
+    std::process::Command::new("say")
+        .arg(&clean)
+        .spawn()
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 fn setup_tray(app: &tauri::App) {
     let icon = app.default_window_icon().cloned();
     let mut builder = TrayIconBuilder::with_id("tray")
         .tooltip("To-Do Tracker")
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            if id == "log-meeting" {
+                let _ = app.emit("log-meeting", ());
+            } else if let Some(task_id) = id.strip_prefix("task-") {
+                let _ = app.emit("show-task", task_id.to_string());
+            }
+            if id == "open-app" || id == "log-meeting" || id.starts_with("task-") {
+                if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -348,6 +399,108 @@ pub fn run() {
                 removed_at TEXT NOT NULL
             );",
         ),
+        up(32, "people_paused", "ALTER TABLE people ADD COLUMN paused INTEGER NOT NULL DEFAULT 0;"),
+        up(33, "people_household", "ALTER TABLE people ADD COLUMN household TEXT NOT NULL DEFAULT '';"),
+        up(34, "people_met", "ALTER TABLE people ADD COLUMN met_how TEXT NOT NULL DEFAULT '';"),
+        up(35, "people_starred", "ALTER TABLE people ADD COLUMN starred INTEGER NOT NULL DEFAULT 0;"),
+        up(36, "people_zone", "ALTER TABLE people ADD COLUMN timezone TEXT NOT NULL DEFAULT '';"),
+        up(37, "people_place", "ALTER TABLE people ADD COLUMN place TEXT NOT NULL DEFAULT '';"),
+        up(38, "people_event", "ALTER TABLE people ADD COLUMN event_group TEXT NOT NULL DEFAULT '';"),
+        up(39, "people_promise", "ALTER TABLE people ADD COLUMN promise_on TEXT;"),
+        up(40, "people_sequential", "ALTER TABLE people ADD COLUMN sequential INTEGER NOT NULL DEFAULT 0;"),
+        up(41, "tasks_do_on", "ALTER TABLE tasks ADD COLUMN do_on TEXT;"),
+        up(42, "tasks_hide", "ALTER TABLE tasks ADD COLUMN hide_until TEXT;"),
+        up(43, "tasks_someday", "ALTER TABLE tasks ADD COLUMN someday INTEGER NOT NULL DEFAULT 0;"),
+        up(44, "tasks_section", "ALTER TABLE tasks ADD COLUMN section_id TEXT;"),
+        up(45, "tasks_owner", "ALTER TABLE tasks ADD COLUMN owner TEXT NOT NULL DEFAULT 'mine';"),
+        up(46, "tasks_clock", "ALTER TABLE tasks ADD COLUMN clock_time TEXT NOT NULL DEFAULT '';"),
+        up(47, "tasks_duration", "ALTER TABLE tasks ADD COLUMN duration_min INTEGER NOT NULL DEFAULT 0;"),
+        up(48, "tasks_remind_time", "ALTER TABLE tasks ADD COLUMN remind_time TEXT NOT NULL DEFAULT '';"),
+        up(49, "tasks_count_done", "ALTER TABLE tasks ADD COLUMN count_done INTEGER NOT NULL DEFAULT 0;"),
+        up(50, "tasks_count_goal", "ALTER TABLE tasks ADD COLUMN count_goal INTEGER NOT NULL DEFAULT 0;"),
+        up(51, "tasks_blocked", "ALTER TABLE tasks ADD COLUMN blocked_by TEXT;"),
+        up(52, "tasks_span", "ALTER TABLE tasks ADD COLUMN span_end TEXT;"),
+        up(53, "tasks_source", "ALTER TABLE tasks ADD COLUMN source_url TEXT NOT NULL DEFAULT '';"),
+        up(54, "tasks_indent", "ALTER TABLE tasks ADD COLUMN indent INTEGER NOT NULL DEFAULT 0;"),
+        up(55, "tasks_wake", "ALTER TABLE tasks ADD COLUMN wake TEXT NOT NULL DEFAULT '';"),
+        up(56, "tasks_folded", "ALTER TABLE tasks ADD COLUMN folded INTEGER NOT NULL DEFAULT 0;"),
+        up(57, "tasks_line", "ALTER TABLE tasks ADD COLUMN source_line TEXT NOT NULL DEFAULT '';"),
+        up(58, "tasks_unfiled", "ALTER TABLE tasks ADD COLUMN unfiled INTEGER NOT NULL DEFAULT 0;"),
+        up(59, "tasks_returned", "ALTER TABLE tasks ADD COLUMN returned INTEGER NOT NULL DEFAULT 0;"),
+        up(60, "tasks_spent", "ALTER TABLE tasks ADD COLUMN spent_min INTEGER NOT NULL DEFAULT 0;"),
+        up(61, "meetings_private", "ALTER TABLE meetings ADD COLUMN private_note TEXT NOT NULL DEFAULT '';"),
+        up(62, "meetings_next", "ALTER TABLE meetings ADD COLUMN next_on TEXT;"),
+        up(63, "meetings_focus", "ALTER TABLE meetings ADD COLUMN next_focus TEXT NOT NULL DEFAULT '';"),
+        up(64, "meetings_span", "ALTER TABLE meetings ADD COLUMN span_end TEXT;"),
+        up(65, "meetings_source", "ALTER TABLE meetings ADD COLUMN source_url TEXT NOT NULL DEFAULT '';"),
+        up(66, "meetings_pinned", "ALTER TABLE meetings ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;"),
+        up(67, "decisions_why", "ALTER TABLE decisions ADD COLUMN why TEXT NOT NULL DEFAULT '';"),
+        up(
+            68,
+            "bullets",
+            "CREATE TABLE bullets (
+                id TEXT PRIMARY KEY NOT NULL,
+                owner_kind TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                body TEXT NOT NULL DEFAULT '',
+                indent INTEGER NOT NULL DEFAULT 0,
+                position INTEGER NOT NULL DEFAULT 0,
+                done INTEGER NOT NULL DEFAULT 0,
+                folded INTEGER NOT NULL DEFAULT 0
+            );",
+        ),
+        up(
+            69,
+            "sections",
+            "CREATE TABLE sections (
+                id TEXT PRIMARY KEY NOT NULL,
+                person_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0
+            );",
+        ),
+        up(
+            70,
+            "life_dates",
+            "CREATE TABLE life_dates (
+                id TEXT PRIMARY KEY NOT NULL,
+                person_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                on_date TEXT NOT NULL
+            );",
+        ),
+        up(
+            71,
+            "gifts",
+            "CREATE TABLE gifts (
+                id TEXT PRIMARY KEY NOT NULL,
+                person_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                given INTEGER NOT NULL DEFAULT 0
+            );",
+        ),
+        up(
+            72,
+            "asks",
+            "CREATE TABLE asks (
+                id TEXT PRIMARY KEY NOT NULL,
+                person_id TEXT NOT NULL,
+                body TEXT NOT NULL,
+                on_date TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0
+            );",
+        ),
+        up(
+            73,
+            "day_logs",
+            "CREATE TABLE day_logs (
+                id TEXT PRIMARY KEY NOT NULL,
+                on_date TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                body TEXT NOT NULL
+            );",
+        ),
     ];
 
     tauri::Builder::default()
@@ -362,6 +515,9 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             set_menu_count,
+            set_tray_menu,
+            write_spotlight,
+            say_text,
             calendar_week,
             backup_database,
             write_text_file,
@@ -369,6 +525,14 @@ pub fn run() {
         ])
         .setup(|app| {
             setup_tray(app);
+            let _ = app.global_shortcut().on_shortcut(
+                "CommandOrControl+Shift+Y",
+                |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        let _ = app.emit("say-due", ());
+                    }
+                },
+            );
             if let Err(err) = app.global_shortcut().on_shortcut(
                 "CommandOrControl+Shift+N",
                 |app, _shortcut, event| {

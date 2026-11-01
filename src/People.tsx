@@ -106,6 +106,22 @@ export function People({ data, today, onOpen, onAdd }: Props) {
       )}
       {error && <p className="form-error">{error}</p>}
 
+      {data.people.some((person) => person.starred) && (
+        <section className="card">
+          <h2>Starred</h2>
+          <div className="chips">
+            {data.people
+              .filter((person) => person.starred)
+              .map((person) => (
+                <button key={person.id} type="button" className="chip" onClick={() => onOpen(person.id)}>
+                  {person.name}
+                  {person.eventGroup ? ` · ${person.eventGroup}` : ""}
+                </button>
+              ))}
+          </div>
+        </section>
+      )}
+
       <div className="people-list">
         {data.people.map((person) => (
           <button key={person.id} className="person-row" onClick={() => onOpen(person.id)}>
@@ -113,7 +129,10 @@ export function People({ data, today, onOpen, onAdd }: Props) {
               <i className="color-dot" style={{ background: swatch(person, data.people) }} />
               {person.name}
             </span>
-            <span className="person-meta">{meta(data, person.id, today)}</span>
+            <span className="person-meta">
+              {meta(data, person.id, today)}
+              {person.eventGroup ? ` · ${person.eventGroup}` : ""}
+            </span>
           </button>
         ))}
       </div>

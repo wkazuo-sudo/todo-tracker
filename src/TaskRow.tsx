@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TaskAction } from "./db";
 import { TaskDetails } from "./TaskDetails";
+import { DueChips } from "./ui";
 import {
   formatDay,
   lateLabel,
@@ -28,6 +29,7 @@ type Props = {
   activity?: Activity[];
   attachments?: Attachment[];
   subtasks?: Task[];
+  siblings?: Task[];
   onDone: () => void;
   onReopen: () => void;
   onSetAside: () => void;
@@ -50,6 +52,7 @@ export function TaskRow({
   activity = [],
   attachments = [],
   subtasks = [],
+  siblings = [],
   onDone,
   onReopen,
   onSetAside,
@@ -159,7 +162,7 @@ export function TaskRow({
           {" · "}
           Asked {asked}
           {" · "}
-          {overdue ? <span className="late">{due}</span> : due}
+          {overdue ? <span className="late">Late · {due}</span> : due}
           {allChecks > 0 ? ` · ${doneChecks} of ${allChecks}` : ""}
           {task.movedCount > 0 ? ` · Moved ${task.movedCount}` : ""}
         </span>
@@ -169,10 +172,7 @@ export function TaskRow({
           </span>
         )}
         {editable && task.status !== "done" && (
-          <label className="due-edit">
-            Due date
-            <input type="date" value={task.dueOn ?? ""} onChange={(event) => onDue(event.target.value || null)} />
-          </label>
+          <DueChips dueOn={task.dueOn} today={today} index={task.id.length + task.title.length} onChoose={onDue} />
         )}
         {quick && active && (
           <div className="chips">
@@ -211,6 +211,7 @@ export function TaskRow({
               activity={activity}
               attachments={attachments}
               subtasks={subtasks}
+              siblings={siblings}
               onAction={onAction}
             />
           </details>

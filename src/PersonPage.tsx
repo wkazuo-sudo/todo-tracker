@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { mentioned } from "./tools";
 import type { PersonPatch, TaskAction } from "./db";
 import { TaskRow } from "./TaskRow";
 import {
@@ -32,6 +34,14 @@ type Tools = {
   onExportMeeting: (meetingId: string) => void;
   onToggleHide: () => void;
   onToggleSort: () => void;
+  onGift?: (body: string) => void;
+  onDate?: (label: string, onDate: string) => void;
+  onAsk?: (body: string, onDate: string) => void;
+  onSection?: (name: string) => void;
+  onOnly?: () => void;
+  onMessage?: () => void;
+  onDropText?: (title: string, note: string) => void;
+  onTopic?: (text: string) => void;
 };
 
 type Props = {
@@ -47,7 +57,7 @@ type Props = {
   onTitle: (task: Task, title: string) => void;
   onDue: (task: Task, dueOn: string | null) => void;
   onNote: (note: string) => void;
-  onMeeting: (meeting: Meeting, fields: { title?: string; meetingDate?: string; note?: string }) => void;
+  onMeeting: (meeting: Meeting, fields: { title?: string; meetingDate?: string; note?: string; pinned?: boolean }) => void;
   onDeleteMeeting: (meetingId: string) => void;
   onDeletePerson: () => void;
 };
@@ -87,10 +97,13 @@ export function PersonPage({
 
   if (!person) return null;
 
-  const meetings = meetingsForPerson(data.meetings, person.id).filter((meeting) => {
-    if (!data.settings.hideFinished || showFinished) return true;
-    return !meetingIsFinished(data.tasks, meeting.id);
-  });
+  const meetings = meetingsForPerson(data.meetings, person.id)
+    .filter((meeting) => {
+      if (!data.settings.hideFinished || showFinished) return true;
+      return !meetingIsFinished(data.tasks, meeting.id);
+    })
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.meetingDate.localeCompare(a.meetingDate));
+  const namedIn = mentioned(data, person.id);
   const past = lastMetMeeting(data.meetings, person.id, today);
   const upcoming = nextMeeting(data.meetings, person.id, today);
   const open = openTasksForPerson(data.tasks, data.meetings, person.id);
@@ -150,6 +163,74 @@ export function PersonPage({
         )}
       </div>
 
+      <details
+        className="card about-card"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          const text = event.dataTransfer.getData("text/plain");
+          if (!text.trim() || !tools.onDropText) return;
+          const [title, ...rest] = text.split("\n");
+          tools.onDropText(title, rest.join("\n"));
+        }}
+      >
+        <summary>About {person.name}</summary>
+        <div className="chips">
+          <button type="button" className="chip" onClick={() => tools.onPerson({ starred: !person.starred })}>
+            {person.starred ? "Starred" : "Star"}
+          </button>
+          <button type="button" className="chip" onClick={() => tools.onPerson({ paused: !person.paused })}>
+            {person.paused ? "Paused" : "Pause"}
+          </button>
+          <button type="button" className="chip" onClick={() => tools.onPerson({ sequential: !person.sequential })}>
+            {person.sequential ? "Showing only the next task" : "Only the next task on home"}
+          </button>
+          <button type="button" className="chip" onClick={tools.onOnly}>
+            Work only these
+          </button>
+          <button type="button" className="chip" onClick={tools.onMessage}>
+            About to message
+          </button>
+          <button
+            type="button"
+            className="chip"
+            onClick={() =>
+              navigator.geolocation.getCurrentPosition((position) =>
+                tools.onPerson({ place: `${position.coords.latitude.toFixed(5)},${position.coords.longitude.toFixed(5)}` }),
+              )
+            }
+          >
+            Remember this place
+          </button>
+        </div>
+        {person.timezone && (
+          <p className="quiet">
+            Their clock:{" "}
+            {theirClock(person.timezone)}
+          </p>
+        )}
+        <label className="field">
+          <span>How you met</span>
+          <input defaultValue={person.metHow ?? ""} onBlur={(event) => tools.onPerson({ metHow: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>People in their life</span>
+          <input defaultValue={person.household ?? ""} onBlur={(event) => tools.onPerson({ household: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>Their city clock</span>
+          <input defaultValue={person.timezone ?? ""} placeholder="America/Sao_Paulo" onBlur={(event) => tools.onPerson({ timezone: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>Promise day</span>
+          <input type="date" defaultValue={person.promiseOn ?? ""} onChange={(event) => tools.onPerson({ promiseOn: event.target.value || null })} />
+        </label>
+        <label className="field">
+          <span>Event group</span>
+          <input defaultValue={person.eventGroup ?? ""} onBlur={(event) => tools.onPerson({ eventGroup: event.target.value })} />
+        </label>
+        <MemoryFields personId={person.id} data={data} tools={tools} />
+      </details>
+
       <div className="detail-row">
         <div className="chips" aria-label="Color">
           {PERSON_COLORS.map((color) => (
@@ -206,6 +287,26 @@ export function PersonPage({
         }}
       />
 
+      {meetings.length > 0 && (
+        <div className="chips">
+          {meetings.slice(0, 10).map((meeting) => (
+            <span key={meeting.id} className="chip">
+              {formatDay(meeting.meetingDate, today)}
+            </span>
+          ))}
+        </div>
+      )}
+      {namedIn.length > 0 && (
+        <section className="card">
+          <h2>Named in someone else’s note</h2>
+          {namedIn.map((meeting) => (
+            <p key={meeting.id}>
+              {data.people.find((item) => item.id === meeting.personId)?.name} · {meeting.title}
+            </p>
+          ))}
+        </section>
+      )}
+
       {meetings.length === 0 && (
         <div className="empty">
           <p>No meetings with {person.name} yet.</p>
@@ -249,6 +350,7 @@ export function PersonPage({
               activity={data.activity}
               attachments={data.attachments}
               subtasks={data.tasks.filter((item) => item.parentId === task.id)}
+              siblings={data.tasks}
               onDone={() => onDone(task)}
               onReopen={() => onReopen(task)}
               onSetAside={() => onSetAside(task)}
@@ -282,6 +384,72 @@ export function PersonPage({
   );
 }
 
+function MemoryFields({ personId, data, tools }: { personId: string; data: Data; tools: Tools }) {
+  const [gift, setGift] = useState("");
+  const [label, setLabel] = useState("");
+  const [when, setWhen] = useState("");
+  const [ask, setAsk] = useState("");
+  const [section, setSection] = useState("");
+  return (
+    <>
+      <div className="add-person">
+        <input value={section} placeholder="A section, such as budget" onChange={(event) => setSection(event.target.value)} />
+        <button type="button" className="text-button" onClick={() => { tools.onSection?.(section); setSection(""); }}>Add section</button>
+      </div>
+      {data.sections.filter((item) => item.personId === personId).map((item) => <p key={item.id}>{item.name}</p>)}
+      <div className="add-person">
+        <input value={label} placeholder="Birthday or anniversary" onChange={(event) => setLabel(event.target.value)} />
+        <input type="date" value={when} onChange={(event) => setWhen(event.target.value)} />
+        <button type="button" className="text-button" onClick={() => { tools.onDate?.(label, when); setLabel(""); }}>Add date</button>
+      </div>
+      {data.lifeDates.filter((item) => item.personId === personId).map((item) => <p key={item.id}>{item.label} · {formatDay(item.onDate, todayISO())}</p>)}
+      <div className="add-person">
+        <input value={gift} placeholder="A gift" onChange={(event) => setGift(event.target.value)} />
+        <button type="button" className="text-button" onClick={() => { tools.onGift?.(gift); setGift(""); }}>Add gift</button>
+      </div>
+      {data.gifts.filter((item) => item.personId === personId).map((item) => <p key={item.id}>{item.body}</p>)}
+      <div className="add-person">
+        <input value={ask} placeholder="Ask how it went" onChange={(event) => setAsk(event.target.value)} />
+        <button type="button" className="text-button" onClick={() => { tools.onAsk?.(ask, when || todayISO()); setAsk(""); }}>Ask later</button>
+      </div>
+      {data.asks.filter((item) => item.personId === personId && !item.done).map((item) => <p key={item.id}>{item.body} · {formatDay(item.onDate, todayISO())}</p>)}
+      <TopicBox onTopic={tools.onTopic} />
+    </>
+  );
+}
+
+function theirClock(zone: string): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(new Date());
+  } catch {
+    return "";
+  }
+}
+
+function TopicBox({ onTopic }: { onTopic?: (text: string) => void }) {
+  const [text, setText] = useState("");
+  return (
+    <div className="add-person">
+      <input value={text} placeholder="A topic for next time" onChange={(event) => setText(event.target.value)} />
+      <button
+        type="button"
+        className="text-button"
+        onClick={() => {
+          onTopic?.(text);
+          setText("");
+        }}
+      >
+        Keep the topic
+      </button>
+    </div>
+  );
+}
+
+function todayISO() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function MeetingCard({
   meeting,
   data,
@@ -304,7 +472,7 @@ function MeetingCard({
   onSetAside: (task: Task) => void;
   onTitle: (task: Task, title: string) => void;
   onDue: (task: Task, dueOn: string | null) => void;
-  onMeeting: (meeting: Meeting, fields: { title?: string; meetingDate?: string; note?: string }) => void;
+  onMeeting: (meeting: Meeting, fields: { title?: string; meetingDate?: string; note?: string; pinned?: boolean }) => void;
   onDelete: () => void;
 }) {
   const [title, setTitle] = useState(meeting.title);
@@ -348,6 +516,35 @@ function MeetingCard({
           if (date && date !== meeting.meetingDate) onMeeting(meeting, { meetingDate: date });
         }}
       />
+      <div className="chips">
+        <button type="button" className="chip" onClick={() => onMeeting(meeting, { pinned: !meeting.pinned })}>
+          {meeting.pinned ? "Unpin this meeting" : "Pin this meeting"}
+        </button>
+        {meeting.sourceUrl && (
+          <button type="button" className="chip" onClick={() => void openUrl(meeting.sourceUrl ?? "")}>
+            Open the source
+          </button>
+        )}
+      </div>
+      <ul className="note-list">
+        {(data.bullets ?? [])
+          .filter((bullet) => bullet.ownerId === meeting.id && bullet.kind === "note")
+          .sort((a, b) => a.position - b.position)
+          .map((bullet) => (
+            <li key={bullet.id} style={{ marginLeft: bullet.indent * 22 }}>
+              {bullet.body}
+            </li>
+          ))}
+      </ul>
+      {(meeting.privateNote ?? "") !== "" && <p className="quiet">Private, kept off the brief: {meeting.privateNote}</p>}
+      {data.meetings
+        .filter((item) => item.id !== meeting.id && item.meetingDate === meeting.meetingDate)
+        .map((item) => (
+          <p key={item.id} className="quiet">
+            Same day: {data.people.find((person) => person.id === item.personId)?.name} · {item.title}
+          </p>
+        ))}
+      {(meeting.nextFocus ?? "") !== "" && <p className="quiet">Next time: {meeting.nextFocus}</p>}
       <textarea
         className="quiet-field meeting-note"
         aria-label="Meeting note"
@@ -417,6 +614,7 @@ function MeetingCard({
           activity={data.activity}
           attachments={data.attachments}
           subtasks={data.tasks.filter((item) => item.parentId === task.id)}
+          siblings={data.tasks}
           onDone={() => onDone(task)}
           onReopen={() => onReopen(task)}
           onSetAside={() => onSetAside(task)}
