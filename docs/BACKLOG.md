@@ -2,6 +2,8 @@
 
 These are in the app. Home still opens on the four counts, the week, and the task list. The rest lives on the person page, Review, Set aside, and Settings.
 
+A further list, not in the app yet, is in [NEXT.md](NEXT.md).
+
 1. Understand dates typed in a sentence, such as “Friday”, and show the reading before it is saved.
 2. Open the new-meeting sheet from anywhere on the Mac with a shortcut, even when the app is in the background.
 3. A command menu that finds a person, a meeting, or a task, and can mark a task done.
