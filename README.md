@@ -4,6 +4,8 @@ A Mac app for the tasks that come out of meetings.
 
 Each person has a page. On that page you log the meeting, the date, and the tasks they asked for. Those tasks also show up on one home screen, sorted by when they are due, with a week view and two simple charts.
 
+Review, Set aside, and Settings are in the sidebar. Press Command-K to jump somewhere, and Command-Shift-N to log a meeting even when the app is in the background.
+
 ## Your notes stay on this Mac
 
 People, meetings, and tasks are saved in a private file that belongs to the app. They are not part of this project, and they are not uploaded to GitHub.

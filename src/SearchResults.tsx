@@ -1,5 +1,19 @@
 import { personName, searchAll, type Data } from "./logic";
 
+function Highlight({ text, query }: { text: string; query: string }) {
+  const needle = query.trim();
+  if (!needle) return <>{text}</>;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "ig"));
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === needle.toLowerCase() ? <mark key={index}>{part}</mark> : <span key={index}>{part}</span>,
+      )}
+    </>
+  );
+}
+
 type Props = {
   data: Data;
   query: string;
@@ -21,7 +35,9 @@ export function SearchResults({ data, query, onPerson }: Props) {
           <h2>People</h2>
           {hits.people.map((person) => (
             <button key={person.id} className="person-row" onClick={() => onPerson(person.id)}>
-              <span className="person-name">{person.name}</span>
+              <span className="person-name">
+                <Highlight text={person.name} query={query} />
+              </span>
             </button>
           ))}
         </section>
@@ -36,7 +52,9 @@ export function SearchResults({ data, query, onPerson }: Props) {
               className="person-row"
               onClick={() => onPerson(meeting.personId, meeting.id)}
             >
-              <span className="person-name">{meeting.title}</span>
+              <span className="person-name">
+                <Highlight text={meeting.title} query={query} />
+              </span>
               <span className="person-meta">{personName(data.people, meeting.personId)}</span>
             </button>
           ))}
@@ -54,7 +72,9 @@ export function SearchResults({ data, query, onPerson }: Props) {
                 className="person-row"
                 onClick={() => meeting && onPerson(meeting.personId, meeting.id)}
               >
-                <span className="person-name">{task.title}</span>
+                <span className="person-name">
+                  <Highlight text={task.title} query={query} />
+                </span>
                 <span className="person-meta">
                   {personName(data.people, task.requesterId)}
                   {meeting ? ` · ${meeting.title}` : ""}

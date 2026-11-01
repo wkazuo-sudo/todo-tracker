@@ -5,9 +5,11 @@ import {
   formatDay,
   nextMonday,
   openTasksForPerson,
+  readDateInTitle,
   todayISO,
   type Data,
   type Person,
+  type RepeatRule,
 } from "./logic";
 import type { NewTaskInput, SaveMeetingInput } from "./db";
 
@@ -18,6 +20,10 @@ type Row = {
   title: string;
   requesterId: string;
   dueOn: string | null;
+  keptWords: boolean;
+  dateTouched: boolean;
+  evening: boolean;
+  repeatRule: RepeatRule;
 };
 
 type Draft = {
@@ -28,14 +34,20 @@ type Draft = {
   note: string;
   rows: Row[];
   markDoneIds: string[];
+  guestIds: string[];
+  decisionText: string;
 };
 
 type Props = {
   data: Data;
   presetPersonId: string | null;
   busy: boolean;
+  stayOpen: boolean;
+  onDirty: (dirty: boolean) => void;
   onClose: () => void;
   onSave: (input: SaveMeetingInput) => Promise<void>;
+  onSaveTemplate: (name: string, lines: string[]) => void;
+  onDeleteTemplate: (id: string) => void;
 };
 
 function explain(caught: unknown): string {
@@ -51,7 +63,16 @@ function explain(caught: unknown): string {
 }
 
 function blankRow(): Row {
-  return { key: crypto.randomUUID(), title: "", requesterId: "", dueOn: null };
+  return {
+    key: crypto.randomUUID(),
+    title: "",
+    requesterId: "",
+    dueOn: null,
+    keptWords: false,
+    dateTouched: false,
+    evening: false,
+    repeatRule: null,
+  };
 }
 
 function readDraft(): Draft | null {
@@ -71,8 +92,14 @@ function readDraft(): Draft | null {
         title: row.title ?? "",
         requesterId: row.requesterId ?? "",
         dueOn: row.dueOn ?? null,
+        keptWords: Boolean(row.keptWords),
+        dateTouched: Boolean(row.dateTouched),
+        evening: Boolean(row.evening),
+        repeatRule: row.repeatRule ?? null,
       })),
       markDoneIds: Array.isArray(parsed.markDoneIds) ? parsed.markDoneIds : [],
+      guestIds: Array.isArray(parsed.guestIds) ? parsed.guestIds : [],
+      decisionText: parsed.decisionText ?? "",
     };
   } catch {
     return null;
@@ -95,6 +122,8 @@ function hasContent(draft: Draft, presetName: string): boolean {
       draft.note.trim() ||
       typedPerson ||
       draft.markDoneIds.length > 0 ||
+      draft.guestIds.length > 0 ||
+      draft.decisionText.trim() !== "" ||
       draft.rows.some((row) => row.title.trim() || row.dueOn || row.requesterId),
   );
 }
@@ -116,17 +145,20 @@ function initialDraft(people: Person[], presetPersonId: string | null): { draft:
       note: "",
       rows: [blankRow(), blankRow()],
       markDoneIds: [],
+      guestIds: [],
+      decisionText: "",
     },
   };
 }
 
-export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Props) {
+export function MeetingSheet({ data, presetPersonId, busy, stayOpen, onDirty, onClose, onSave, onSaveTemplate, onDeleteTemplate }: Props) {
   const today = todayISO();
   const starting = initialDraft(data.people, presetPersonId);
   const [draft, setDraft] = useState<Draft>(starting.draft);
   const [restored] = useState(starting.restored);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
+  const [templateName, setTemplateName] = useState("");
   const savedRef = useRef(false);
   const titleRefs = useRef<Array<HTMLInputElement | null>>([]);
   const presetName = data.people.find((person) => person.id === presetPersonId)?.name ?? "";
@@ -134,7 +166,8 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
   useEffect(() => {
     if (savedRef.current) return;
     writeDraft(hasContent(draft, presetName) ? draft : null);
-  }, [draft, presetName]);
+    onDirty(hasContent(draft, presetName));
+  }, [draft, onDirty, presetName]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -152,10 +185,18 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
   const tomorrow = addDays(today, 1);
   const monday = nextMonday(today);
   const query = draft.personText.trim().toLowerCase();
+  const lastId = data.settings.lastPersonId;
   const matches = (query
     ? data.people.filter((person) => person.name.toLowerCase().includes(query))
     : data.people
-  ).slice(0, 6);
+  )
+    .slice()
+    .sort((a, b) => {
+      if (a.id === lastId) return -1;
+      if (b.id === lastId) return 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 6);
   const exact = findPersonByName(data.people, draft.personText);
 
   function patch(partial: Partial<Draft>) {
@@ -170,7 +211,7 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
   }
 
   function chooseDue(key: string, dueOn: string | null) {
-    setRow(key, { dueOn });
+    setRow(key, { dueOn, dateTouched: true });
   }
 
   function dueSelected(dueOn: string | null, choice: string | null): boolean {
@@ -196,11 +237,16 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
     }
     const tasks: NewTaskInput[] = draft.rows
       .filter((row) => row.title.trim())
-      .map((row) => ({
-        title: row.title,
-        requesterId: row.requesterId || null,
-        dueOn: row.dueOn,
-      }));
+      .map((row) => {
+        const reading = !row.keptWords && !row.dateTouched ? readDateInTitle(row.title, today) : null;
+        return {
+          title: reading ? reading.title : row.title.trim(),
+          requesterId: row.requesterId || null,
+          dueOn: row.dueOn ?? reading?.date ?? null,
+          evening: row.evening || Boolean(reading?.evening),
+          repeatRule: row.repeatRule,
+        };
+      });
     setError("");
     try {
       await onSave({
@@ -211,9 +257,24 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
         note: draft.note,
         tasks,
         markDoneIds: draft.markDoneIds.filter((taskId) => openTasks.some((task) => task.id === taskId)),
+        guestIds: draft.guestIds,
+        decisions: draft.decisionText.split("\n"),
       });
-      savedRef.current = true;
-      writeDraft(null);
+      if (stayOpen) {
+        const cleared = {
+          ...draft,
+          title: "",
+          note: "",
+          decisionText: "",
+          rows: [blankRow(), blankRow()],
+          markDoneIds: [],
+        };
+        setDraft(cleared);
+        writeDraft(null);
+      } else {
+        savedRef.current = true;
+        writeDraft(null);
+      }
     } catch (caught) {
       setError(explain(caught));
     }
@@ -281,6 +342,7 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
                   }}
                 >
                   {person.name}
+                  {person.id === lastId ? " · last time" : ""}
                 </button>
               ))}
               {query && !exact && (
@@ -319,6 +381,62 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
           />
         </label>
 
+        {data.templates.length > 0 && (
+          <label className="field">
+            <span>Template</span>
+            <select
+              value=""
+              onChange={(event) => {
+                const template = data.templates.find((item) => item.id === event.target.value);
+                if (!template) return;
+                patch({
+                  rows: template.lines.map((line) => ({ ...blankRow(), title: line })),
+                });
+              }}
+            >
+              <option value="">Use a template</option>
+              {data.templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+            <div className="chips">
+              {data.templates.map((template) => (
+                <button key={template.id} type="button" className="text-button" onClick={() => onDeleteTemplate(template.id)}>
+                  Remove {template.name}
+                </button>
+              ))}
+            </div>
+          </label>
+        )}
+
+        {data.people.length > 1 && (
+          <fieldset className="field">
+            <legend>Also there</legend>
+            <div className="chips">
+              {data.people
+                .filter((person) => person.id !== resolved?.id)
+                .map((person) => (
+                  <button
+                    key={person.id}
+                    type="button"
+                    className={draft.guestIds.includes(person.id) ? "chip selected" : "chip"}
+                    onClick={() =>
+                      patch({
+                        guestIds: draft.guestIds.includes(person.id)
+                          ? draft.guestIds.filter((id) => id !== person.id)
+                          : [...draft.guestIds, person.id],
+                      })
+                    }
+                  >
+                    {person.name}
+                  </button>
+                ))}
+            </div>
+          </fieldset>
+        )}
+
         <label className="field">
           <span>Note</span>
           <textarea
@@ -356,6 +474,15 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
           </section>
         )}
 
+        <label className="field">
+          <span>Decisions</span>
+          <textarea
+            value={draft.decisionText}
+            placeholder="One decision per line"
+            onChange={(event) => patch({ decisionText: event.target.value })}
+          />
+        </label>
+
         <h3 className="section-label">Tasks from this meeting</h3>
         {draft.rows.map((row, index) => {
           const custom =
@@ -372,9 +499,22 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
                 ref={(node) => {
                   titleRefs.current[index] = node;
                 }}
-                onChange={(event) => setRow(row.key, { title: event.target.value })}
+                onChange={(event) => setRow(row.key, { title: event.target.value, keptWords: false })}
                 onKeyDown={(event) => onTaskKey(event, index)}
               />
+              {(() => {
+                const reading = !row.keptWords && !row.dateTouched ? readDateInTitle(row.title, today) : null;
+                if (!reading) return null;
+                return (
+                  <p className="hint">
+                    Read as due {formatDay(reading.date, today)}
+                    {reading.evening ? ", this evening" : ""}.{" "}
+                    <button type="button" className="text-button" onClick={() => setRow(row.key, { keptWords: true })}>
+                      Keep the words
+                    </button>
+                  </p>
+                );
+              })()}
               <div className="who-row">
                 <label>
                   <span className="sr-only">Who asked</span>
@@ -435,12 +575,43 @@ export function MeetingSheet({ data, presetPersonId, busy, onClose, onSave }: Pr
                   >
                     No date
                   </button>
+                  <select
+                    aria-label={`Repeats for task ${index + 1}`}
+                    value={row.repeatRule ?? ""}
+                    onChange={(event) => setRow(row.key, { repeatRule: (event.target.value || null) as RepeatRule })}
+                  >
+                    <option value="">Once</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
                 </div>
               </div>
             </div>
           );
         })}
 
+        <div className="inline-form">
+          <input
+            aria-label="Template name"
+            placeholder="Save these tasks as a template"
+            value={templateName}
+            onChange={(event) => setTemplateName(event.target.value)}
+          />
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              onSaveTemplate(
+                templateName,
+                draft.rows.map((row) => row.title),
+              );
+              setTemplateName("");
+            }}
+          >
+            Save template
+          </button>
+        </div>
         {error && <p className="form-error">{error}</p>}
         <div className="sheet-actions">
           <button type="button" className="text-button" onClick={discard}>

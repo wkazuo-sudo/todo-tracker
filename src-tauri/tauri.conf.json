@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "To-Do Tracker",
         "width": 1280,
         "height": 840,

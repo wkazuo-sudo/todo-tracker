@@ -1,10 +1,12 @@
 import { useState } from "react";
 import {
+  companyName,
   daysBetween,
   formatDay,
   lastMetMeeting,
   nextMeeting,
   openTasksForPerson,
+  swatch,
   type Data,
 } from "./logic";
 
@@ -20,13 +22,15 @@ function meta(data: Data, personId: string, today: string): string {
   const openLabel = open === 0 ? "Nothing open" : open === 1 ? "1 open" : `${open} open`;
   const past = lastMetMeeting(data.meetings, personId, today);
   const future = nextMeeting(data.meetings, personId, today);
+  const company = companyName(data.companies, data.people.find((person) => person.id === personId)?.companyId ?? null);
+  const companyLabel = company ? `${company} · ` : "";
   if (past) {
     const days = daysBetween(past.meetingDate, today);
     const when = days === 0 ? "today" : days === 1 ? "yesterday" : formatDay(past.meetingDate, today);
-    return `${openLabel} · Last met ${when}`;
+    return `${companyLabel}${openLabel} · Last met ${when}`;
   }
-  if (future) return `${openLabel} · Next meeting ${formatDay(future.meetingDate, today)}`;
-  return "No meetings yet";
+  if (future) return `${companyLabel}${openLabel} · Next meeting ${formatDay(future.meetingDate, today)}`;
+  return company ? `${company} · No meetings yet` : "No meetings yet";
 }
 
 export function People({ data, today, onOpen, onAdd }: Props) {
@@ -105,7 +109,10 @@ export function People({ data, today, onOpen, onAdd }: Props) {
       <div className="people-list">
         {data.people.map((person) => (
           <button key={person.id} className="person-row" onClick={() => onOpen(person.id)}>
-            <span className="person-name">{person.name}</span>
+            <span className="person-name">
+              <i className="color-dot" style={{ background: swatch(person, data.people) }} />
+              {person.name}
+            </span>
             <span className="person-meta">{meta(data, person.id, today)}</span>
           </button>
         ))}

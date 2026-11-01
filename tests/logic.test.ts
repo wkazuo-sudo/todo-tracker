@@ -7,6 +7,7 @@ import {
   fullestDayLine,
   groupOpen,
   lastMetMeeting,
+  medianWait,
   meetingsForPerson,
   nextMeeting,
   nextMonday,
@@ -14,6 +15,7 @@ import {
   oldestOpen,
   openByPerson,
   openTasksForPerson,
+  readDateInTitle,
   savedLine,
   searchAll,
   startOfWeek,
@@ -29,7 +31,16 @@ import {
 const sunday = "2026-11-01";
 
 function person(id: string, name: string): Person {
-  return { id, name, note: "", createdAt: "2026-10-01T00:00:00.000Z" };
+  return {
+    id,
+    name,
+    note: "",
+    createdAt: "2026-10-01T00:00:00.000Z",
+    color: "",
+    companyId: null,
+    checkInOn: null,
+    cadenceDays: null,
+  };
 }
 
 function meeting(partial: Partial<Meeting> & Pick<Meeting, "id" | "personId">): Meeting {
@@ -38,6 +49,7 @@ function meeting(partial: Partial<Meeting> & Pick<Meeting, "id" | "personId">): 
     meetingDate: sunday,
     note: "",
     createdAt: "2026-11-01T00:00:00.000Z",
+    guestIds: [],
     ...partial,
   };
 }
@@ -52,6 +64,16 @@ function task(partial: Partial<Task> & Pick<Task, "id">): Task {
     status: "open",
     completedAt: null,
     createdAt: "2026-10-20T00:00:00.000Z",
+    priority: "none",
+    pinned: false,
+    evening: false,
+    repeatRule: null,
+    notes: "",
+    movedCount: 0,
+    parentId: null,
+    remind: false,
+    updatedAt: "",
+    tagIds: [],
     ...partial,
   };
 }
@@ -176,4 +198,24 @@ test("search matches people, meetings, and tasks", () => {
   assert.equal(savedLine(0), "Saved: 1 meeting");
   assert.equal(savedLine(2), "Saved: 1 meeting, 2 tasks");
   assert.equal(addDays(sunday, 1), "2026-11-02");
+});
+
+test("a written day becomes a due date, and the median ignores one odd task", () => {
+  const reading = readDateInTitle("Send the deck Friday", sunday);
+  assert.equal(reading?.date, "2026-11-06");
+  assert.equal(reading?.title, "Send the deck");
+  assert.equal(readDateInTitle("Call tomorrow", sunday)?.date, "2026-11-02");
+  assert.equal(readDateInTitle("Leave this evening", sunday)?.evening, true);
+  const waits = [1, 2, 3, 4, 30].map((days, index) =>
+    task({
+      id: `done-${index}`,
+      status: "done",
+      requestedOn: "2026-10-01",
+      completedAt: addDays("2026-10-01", days),
+    }),
+  );
+  assert.equal(medianWait(waits), 3);
+  assert.equal(medianWait(waits.slice(0, 4)), null);
+  assert.equal(bucketFor(task({ id: "wait", status: "waiting" }), sunday), null);
+  assert.equal(bucketFor(task({ id: "eve", evening: true, dueOn: sunday }), sunday), "evening");
 });

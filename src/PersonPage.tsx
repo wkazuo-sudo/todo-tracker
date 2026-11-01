@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
+import type { PersonPatch, TaskAction } from "./db";
 import { TaskRow } from "./TaskRow";
 import {
+  companyName,
   daysBetween,
   formatDay,
   lastMetMeeting,
+  meetingIsFinished,
   meetingsForPerson,
   nextMeeting,
   openTasksForPerson,
+  PERSON_COLORS,
+  swatch,
   tasksAskedElsewhere,
   tasksForMeeting,
   type Data,
@@ -14,11 +19,27 @@ import {
   type Task,
 } from "./logic";
 
+type Tools = {
+  onAction: (task: Task, action: TaskAction) => void;
+  onPerson: (fields: PersonPatch) => void;
+  onCompany: (name: string) => void;
+  onGuests: (meetingId: string, ids: string[]) => void;
+  onDecision: (meetingId: string, body: string) => void;
+  onDeleteDecision: (id: string) => void;
+  onBrief: () => void;
+  onBeside: () => void;
+  onExport: () => void;
+  onExportMeeting: (meetingId: string) => void;
+  onToggleHide: () => void;
+  onToggleSort: () => void;
+};
+
 type Props = {
   data: Data;
   personId: string;
   today: string;
   focusMeetingId?: string;
+  tools: Tools;
   onLog: () => void;
   onDone: (task: Task) => void;
   onReopen: (task: Task) => void;
@@ -36,6 +57,7 @@ export function PersonPage({
   personId,
   today,
   focusMeetingId,
+  tools,
   onLog,
   onDone,
   onReopen,
@@ -50,10 +72,13 @@ export function PersonPage({
   const person = data.people.find((item) => item.id === personId);
   const [note, setNote] = useState(person?.note ?? "");
   const [confirming, setConfirming] = useState(false);
+  const [company, setCompany] = useState("");
+  const [showFinished, setShowFinished] = useState(false);
 
   useEffect(() => {
     setNote(person?.note ?? "");
-  }, [person?.note]);
+    setCompany(companyName(data.companies, person?.companyId ?? null));
+  }, [person?.note, person?.companyId, data.companies]);
 
   useEffect(() => {
     if (!focusMeetingId) return;
@@ -62,7 +87,10 @@ export function PersonPage({
 
   if (!person) return null;
 
-  const meetings = meetingsForPerson(data.meetings, person.id);
+  const meetings = meetingsForPerson(data.meetings, person.id).filter((meeting) => {
+    if (!data.settings.hideFinished || showFinished) return true;
+    return !meetingIsFinished(data.tasks, meeting.id);
+  });
   const past = lastMetMeeting(data.meetings, person.id, today);
   const upcoming = nextMeeting(data.meetings, person.id, today);
   const open = openTasksForPerson(data.tasks, data.meetings, person.id);
@@ -76,23 +104,95 @@ export function PersonPage({
   } else if (upcoming) {
     summary = `Next meeting ${formatDay(upcoming.meetingDate, today)} · ${upcoming.title}`;
   }
-  if (open.length > 0) {
-    summary += open.length === 1 ? " · 1 still open" : ` · ${open.length} still open`;
-  }
+  if (open.length > 0) summary += open.length === 1 ? " · 1 still open" : ` · ${open.length} still open`;
+  if (person.checkInOn) summary += ` · Next check-in ${formatDay(person.checkInOn, today)}`;
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1 className="page-title">{person.name}</h1>
+          <h1 className="page-title">
+            <i className="color-dot" style={{ background: swatch(person, data.people) }} />
+            {person.name}
+          </h1>
           <p className="page-sub">{summary}</p>
           {past && upcoming && (
-            <p className="page-sub">Next meeting {formatDay(upcoming.meetingDate, today)} · {upcoming.title}</p>
+            <p className="page-sub">
+              Next meeting {formatDay(upcoming.meetingDate, today)} · {upcoming.title}
+            </p>
           )}
         </div>
         <button className="primary" onClick={onLog}>
           Log a meeting
         </button>
+      </div>
+
+      <div className="chips">
+        <button type="button" className="chip" onClick={tools.onBrief}>
+          Brief
+        </button>
+        <button type="button" className="chip" onClick={tools.onBeside}>
+          Open beside
+        </button>
+        <button type="button" className="chip" onClick={tools.onExport}>
+          Export open tasks
+        </button>
+        <button type="button" className="chip" onClick={tools.onToggleHide}>
+          {data.settings.hideFinished ? "Show finished meetings" : "Hide finished meetings"}
+        </button>
+        <button type="button" className="chip" onClick={tools.onToggleSort}>
+          {data.settings.sortClosest ? "Usual order" : "Closest to done first"}
+        </button>
+        {data.settings.hideFinished && (
+          <button type="button" className="chip" onClick={() => setShowFinished((value) => !value)}>
+            {showFinished ? "Hiding finished again" : "Show finished now"}
+          </button>
+        )}
+      </div>
+
+      <div className="detail-row">
+        <div className="chips" aria-label="Color">
+          {PERSON_COLORS.map((color) => (
+            <button
+              key={color}
+              type="button"
+              className={person.color === color ? "color-dot selected" : "color-dot"}
+              style={{ background: color }}
+              aria-label={`Color ${color}`}
+              onClick={() => tools.onPerson({ color })}
+            />
+          ))}
+        </div>
+        <label>
+          Company
+          <input
+            value={company}
+            onChange={(event) => setCompany(event.target.value)}
+            onBlur={() => {
+              if (company.trim()) tools.onCompany(company);
+              else if (person.companyId) tools.onPerson({ companyId: null });
+            }}
+          />
+        </label>
+        <label>
+          Next check-in
+          <input
+            type="date"
+            value={person.checkInOn ?? ""}
+            onChange={(event) => tools.onPerson({ checkInOn: event.target.value || null })}
+          />
+        </label>
+        <label>
+          Every N days
+          <input
+            type="number"
+            min={0}
+            value={person.cadenceDays ?? ""}
+            onChange={(event) =>
+              tools.onPerson({ cadenceDays: event.target.value ? Number(event.target.value) : null })
+            }
+          />
+        </label>
       </div>
 
       <textarea
@@ -121,6 +221,7 @@ export function PersonPage({
           meeting={meeting}
           data={data}
           today={today}
+          tools={tools}
           onDone={onDone}
           onReopen={onReopen}
           onSetAside={onSetAside}
@@ -143,12 +244,18 @@ export function PersonPage({
               meetings={data.meetings}
               today={today}
               editable
+              checks={data.checks}
+              tags={data.tags}
+              activity={data.activity}
+              attachments={data.attachments}
+              subtasks={data.tasks.filter((item) => item.parentId === task.id)}
               onDone={() => onDone(task)}
               onReopen={() => onReopen(task)}
               onSetAside={() => onSetAside(task)}
               onTitle={(title) => onTitle(task, title)}
               onDue={(dueOn) => onDue(task, dueOn)}
               onOpen={() => undefined}
+              onAction={(action) => tools.onAction(task, action)}
             />
           ))}
         </section>
@@ -157,7 +264,7 @@ export function PersonPage({
       <div className="person-remove">
         {confirming ? (
           <div className="confirm">
-            <span>This removes {person.name} and the meetings you logged with them.</span>
+            <span>This removes {person.name} and the meetings you logged with them. You can bring them back from Settings.</span>
             <button className="text-button danger" onClick={onDeletePerson}>
               Remove
             </button>
@@ -179,6 +286,7 @@ function MeetingCard({
   meeting,
   data,
   today,
+  tools,
   onDone,
   onReopen,
   onSetAside,
@@ -190,6 +298,7 @@ function MeetingCard({
   meeting: Meeting;
   data: Data;
   today: string;
+  tools: Tools;
   onDone: (task: Task) => void;
   onReopen: (task: Task) => void;
   onSetAside: (task: Task) => void;
@@ -201,8 +310,13 @@ function MeetingCard({
   const [title, setTitle] = useState(meeting.title);
   const [date, setDate] = useState(meeting.meetingDate);
   const [note, setNote] = useState(meeting.note);
+  const [decision, setDecision] = useState("");
   const [confirming, setConfirming] = useState(false);
-  const tasks = tasksForMeeting(data.tasks, meeting.id);
+  const tasks = tasksForMeeting(data.tasks, meeting.id, {
+    closest: data.settings.sortClosest,
+    checks: data.checks,
+  }).filter((task) => !task.parentId);
+  const decisions = data.decisions.filter((item) => item.meetingId === meeting.id);
 
   useEffect(() => {
     setTitle(meeting.title);
@@ -244,6 +358,52 @@ function MeetingCard({
           if (note !== meeting.note) onMeeting(meeting, { note });
         }}
       />
+      <div className="chips">
+        {data.people
+          .filter((person) => person.id !== meeting.personId)
+          .map((person) => (
+            <button
+              key={person.id}
+              type="button"
+              className={(meeting.guestIds ?? []).includes(person.id) ? "chip selected" : "chip"}
+              onClick={() => {
+                const current = meeting.guestIds ?? [];
+                const next = current.includes(person.id)
+                  ? current.filter((id) => id !== person.id)
+                  : [...current, person.id];
+                tools.onGuests(meeting.id, next);
+              }}
+            >
+              {person.name}
+            </button>
+          ))}
+      </div>
+      {decisions.map((item) => (
+        <p key={item.id} className="quiet">
+          Decision: {item.body}{" "}
+          <button type="button" className="text-button" onClick={() => tools.onDeleteDecision(item.id)}>
+            Remove
+          </button>
+        </p>
+      ))}
+      <form
+        className="inline-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          tools.onDecision(meeting.id, decision);
+          setDecision("");
+        }}
+      >
+        <input
+          aria-label="Decision"
+          placeholder="Add a decision"
+          value={decision}
+          onChange={(event) => setDecision(event.target.value)}
+        />
+        <button className="text-button" type="submit">
+          Add
+        </button>
+      </form>
       {tasks.map((task) => (
         <TaskRow
           key={task.id}
@@ -252,12 +412,18 @@ function MeetingCard({
           meetings={data.meetings}
           today={today}
           editable
+          checks={data.checks}
+          tags={data.tags}
+          activity={data.activity}
+          attachments={data.attachments}
+          subtasks={data.tasks.filter((item) => item.parentId === task.id)}
           onDone={() => onDone(task)}
           onReopen={() => onReopen(task)}
           onSetAside={() => onSetAside(task)}
           onTitle={(next) => onTitle(task, next)}
           onDue={(dueOn) => onDue(task, dueOn)}
           onOpen={() => undefined}
+          onAction={(action) => tools.onAction(task, action)}
         />
       ))}
       {confirming ? (
@@ -272,6 +438,9 @@ function MeetingCard({
         </div>
       ) : (
         <div className="confirm">
+          <button className="text-button" onClick={() => tools.onExportMeeting(meeting.id)}>
+            Save this meeting
+          </button>
           <button className="text-button" onClick={() => setConfirming(true)}>
             Remove meeting
           </button>
