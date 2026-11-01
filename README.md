@@ -10,6 +10,8 @@ Review, Set aside, and Settings are in the sidebar. Press Command-K to jump some
 
 People, meetings, and tasks are saved in a private file that belongs to the app. They are not part of this project, and they are not uploaded to GitHub.
 
+Another assistant that needs to add a to-do should follow [AGENTS.md](AGENTS.md). That file is the step-by-step.
+
 ## Open it
 
 From this folder:
