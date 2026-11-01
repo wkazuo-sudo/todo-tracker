@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { TaskAction, TaskPatch } from "./db";
+import { ChipButton } from "./icons";
 import { openFocus } from "./native";
 import {
   formatDay,
@@ -57,35 +58,27 @@ export function TaskDetails({
   return (
     <div className="details">
       <div className="chips">
-        <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "in_progress" })}>
+        <ChipButton icon="play" tone="progress" className={task.status === "in_progress" ? "selected" : ""} onClick={() => onAction({ type: "status", status: "in_progress" })}>
           In progress
-        </button>
-        <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "waiting" })}>
+        </ChipButton>
+        <ChipButton icon="hourglass" tone="wait" className={task.status === "waiting" ? "selected" : ""} onClick={() => onAction({ type: "status", status: "waiting" })}>
           Waiting on them
-        </button>
-        <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "open" })}>
+        </ChipButton>
+        <ChipButton icon="circle" tone="none" className={task.status === "open" ? "selected" : ""} onClick={() => onAction({ type: "status", status: "open" })}>
           Open
-        </button>
-        <button type="button" className="chip" onClick={() => patch({ pinned: !task.pinned })}>
+        </ChipButton>
+        <ChipButton icon="pin" tone="pin" className={task.pinned ? "selected" : ""} onClick={() => patch({ pinned: !task.pinned })}>
           {task.pinned ? "Unpin" : "Pin"}
-        </button>
-        <button type="button" className="chip" onClick={() => patch({ evening: !task.evening })}>
+        </ChipButton>
+        <ChipButton icon="moon" tone="evening" className={task.evening ? "selected" : ""} onClick={() => patch({ evening: !task.evening })}>
           {task.evening ? "Not this evening" : "This evening"}
-        </button>
-        <button
-          type="button"
-          className="chip"
-          onClick={() => onAction({ type: "due", dueOn: task.dueOn ? addSafe(task.dueOn, 1, today) : today })}
-        >
+        </ChipButton>
+        <ChipButton icon="clock" tone="day" onClick={() => onAction({ type: "due", dueOn: task.dueOn ? addSafe(task.dueOn, 1, today) : today })}>
           Snooze a day
-        </button>
-        <button
-          type="button"
-          className="chip"
-          onClick={() => onAction({ type: "due", dueOn: task.dueOn ? addSafe(task.dueOn, 7, today) : today })}
-        >
+        </ChipButton>
+        <ChipButton icon="calendar" tone="week" onClick={() => onAction({ type: "due", dueOn: task.dueOn ? addSafe(task.dueOn, 7, today) : today })}>
           Snooze a week
-        </button>
+        </ChipButton>
       </div>
 
       <div className="detail-row">
@@ -231,24 +224,24 @@ export function TaskDetails({
       <div className="detail-block">
         <p className="section-label">How this follow-up behaves</p>
         <div className="chips">
-          <button type="button" className="chip" onClick={() => patch({ someday: !task.someday })}>
+          <ChipButton icon="cloud" tone="evening" className={task.someday ? "selected" : ""} onClick={() => patch({ someday: !task.someday })}>
             {task.someday ? "Bring it back" : "Someday"}
-          </button>
-          <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "void" })}>
+          </ChipButton>
+          <ChipButton icon="slash" tone="aside" onClick={() => onAction({ type: "status", status: "void" })}>
             Void it
-          </button>
-          <button type="button" className="chip" onClick={() => patch({ wake: "open" })}>
+          </ChipButton>
+          <ChipButton icon="sun" tone="eod" onClick={() => patch({ wake: "open" })}>
             When I next open this Mac
-          </button>
-          <button type="button" className="chip" onClick={() => patch({ wake: "meeting" })}>
+          </ChipButton>
+          <ChipButton icon="people" tone="day" onClick={() => patch({ wake: "meeting" })}>
             When I next log them
-          </button>
-          <button type="button" className="chip" onClick={() => void openFocus(task.id, task.title)}>
+          </ChipButton>
+          <ChipButton icon="play" tone="progress" onClick={() => void openFocus(task.id, task.title)}>
             Work on this alone
-          </button>
-          <button
-            type="button"
-            className="chip"
+          </ChipButton>
+          <ChipButton
+            icon="clock"
+            tone="week"
             onClick={() => {
               if (clockOn === null) {
                 setClockOn(Date.now());
@@ -260,7 +253,7 @@ export function TaskDetails({
             }}
           >
             {clockOn === null ? "Start a clock" : "Stop the clock"}
-          </button>
+          </ChipButton>
         </div>
         {(task.spentMin ?? 0) > 0 && <p className="quiet">{task.spentMin} minutes on this so far.</p>}
         {task.sourceLine && <p className="quiet">From the note: {task.sourceLine}</p>}

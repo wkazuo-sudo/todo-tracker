@@ -1,6 +1,7 @@
 import { useEffect, useState, type DragEvent } from "react";
 import type { TaskAction } from "./db";
 import { TaskRow } from "./TaskRow";
+import { ChipButton } from "./icons";
 import { BarChart } from "./ui";
 import type { CalEvent } from "./native";
 import {
@@ -247,15 +248,15 @@ export function Dashboard({
           <p className="page-sub">Everything people have asked you to do.</p>
         </div>
         <div className="chips no-print">
-          <button type="button" className="chip" onClick={onPrint}>
+          <ChipButton icon="print" tone="none" onClick={onPrint}>
             Print
-          </button>
-          <button type="button" className="chip" onClick={() => onExport("text")}>
+          </ChipButton>
+          <ChipButton icon="file" tone="day" onClick={() => onExport("text")}>
             Save as text
-          </button>
-          <button type="button" className="chip" onClick={() => onExport("csv")}>
+          </ChipButton>
+          <ChipButton icon="sheet" tone="progress" onClick={() => onExport("csv")}>
             Spreadsheet
-          </button>
+          </ChipButton>
         </div>
       </div>
 
@@ -266,15 +267,15 @@ export function Dashboard({
             {person.checkInOn ? ` · ${formatDay(person.checkInOn, today)}` : ""}
           </p>
           <div className="chips">
-            <button type="button" className="chip" onClick={() => onLog(person.id)}>
+            <ChipButton icon="plus" tone="progress" onClick={() => onLog(person.id)}>
               Log a meeting
-            </button>
-            <button type="button" className="chip" onClick={() => onCheckIn(person.id, "snooze")}>
+            </ChipButton>
+            <ChipButton icon="calendar" tone="week" onClick={() => onCheckIn(person.id, "snooze")}>
               Snooze a week
-            </button>
-            <button type="button" className="chip" onClick={() => onCheckIn(person.id, "dismiss")}>
+            </ChipButton>
+            <ChipButton icon="check" tone="none" onClick={() => onCheckIn(person.id, "dismiss")}>
               Dismiss
-            </button>
+            </ChipButton>
           </div>
         </section>
       ))}

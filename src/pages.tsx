@@ -12,6 +12,7 @@ import {
   type TaskStatus,
 } from "./logic";
 import { hoursLine, startLine } from "./tools";
+import { ChipButton, Icon } from "./icons";
 import { BarChart } from "./ui";
 
 type Command = { id: string; label: string; hint: string; run: () => void };
@@ -196,15 +197,15 @@ export function ReviewPage({
                   </p>
                 </div>
                 <div className="chips">
-                  <button type="button" className="chip" onClick={() => onStatus(task, "open")}>
+                  <ChipButton icon="circle" tone="none" onClick={() => onStatus(task, "open")}>
                     Still real
-                  </button>
-                  <button type="button" className="chip" onClick={() => onStatus(task, "done")}>
+                  </ChipButton>
+                  <ChipButton icon="check" tone="progress" onClick={() => onStatus(task, "done")}>
                     Done
-                  </button>
-                  <button type="button" className="chip" onClick={() => onStatus(task, "set_aside")}>
+                  </ChipButton>
+                  <ChipButton icon="box" tone="aside" onClick={() => onStatus(task, "set_aside")}>
                     Set aside
-                  </button>
+                  </ChipButton>
                 </div>
               </div>
             ))}
@@ -395,15 +396,15 @@ export function SettingsPage({
       <section className="card">
         <h2>Appearance</h2>
         <div className="chips">
-          <button type="button" className={settings.theme === "dark" ? "chip selected" : "chip"} onClick={onTheme}>
+          <ChipButton icon="moon" tone="evening" className={settings.theme === "dark" ? "selected" : ""} onClick={onTheme}>
             {settings.theme === "dark" ? "Dark appearance on" : "Dark appearance"}
-          </button>
-          <button type="button" className={settings.typeSize === "large" ? "chip selected" : "chip"} onClick={onType}>
+          </ChipButton>
+          <ChipButton icon="plus" tone="day" className={settings.typeSize === "large" ? "selected" : ""} onClick={onType}>
             {settings.typeSize === "large" ? "Larger type on" : "Larger type"}
-          </button>
-          <button type="button" className={settings.contrast ? "chip selected" : "chip"} onClick={onContrast}>
+          </ChipButton>
+          <ChipButton icon="sun" tone="eod" className={settings.contrast ? "selected" : ""} onClick={onContrast}>
             {settings.contrast ? "Stronger contrast on" : "Stronger contrast"}
-          </button>
+          </ChipButton>
         </div>
         <p className="quiet">Late is written next to the red, so color is not the only signal.</p>
       </section>
@@ -463,10 +464,13 @@ export function SettingsPage({
         </p>
         {settings.googleIcal ? (
           <div className="chips">
-            <span className="chip selected">Connected</span>
-            <button type="button" className="chip" onClick={() => onValue("googleIcal", "")}>
+            <span className="chip tone-progress selected">
+              <Icon name="link" />
+              Connected
+            </span>
+            <ChipButton icon="slash" tone="aside" onClick={() => onValue("googleIcal", "")}>
               Disconnect
-            </button>
+            </ChipButton>
           </div>
         ) : (
           <form
@@ -488,9 +492,9 @@ export function SettingsPage({
       <section className="card">
         <h2>Outside the window</h2>
         <div className="chips">
-          <button type="button" className="chip" onClick={onSay}>
+          <ChipButton icon="speaker" tone="day" onClick={onSay}>
             Say what is due
-          </button>
+          </ChipButton>
           <button type="button" className="chip" onClick={onCard}>
             Put today’s card on the desktop
           </button>

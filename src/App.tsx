@@ -54,6 +54,7 @@ import {
   type Meeting,
   type Task,
 } from "./logic";
+import { Icon } from "./icons";
 import { Dashboard } from "./Dashboard";
 import { MeetingSheet } from "./MeetingSheet";
 import { People } from "./People";
@@ -577,38 +578,43 @@ export default function App() {
         <nav className="nav">
           {(
             [
-              ["home", "Home"],
-              ["people", "People"],
-              ["review", "Review"],
-              ["archive", "Set aside"],
-              ["day", "Today"],
-              ["boxes", "Four boxes"],
-              ["someday", "Someday"],
+              ["home", "Home", "home", "progress"],
+              ["people", "People", "people", "day"],
+              ["review", "Review", "list", "pin"],
+              ["archive", "Set aside", "box", "aside"],
+              ["day", "Today", "sun", "eod"],
+              ["boxes", "Four boxes", "squares", "week"],
+              ["someday", "Someday", "cloud", "evening"],
             ] as const
-          ).map(([name, label]) => (
+          ).map(([name, label, icon, tone]) => (
             <button
               key={name}
-              className={screen.name === name && !searching ? "nav-button active" : "nav-button"}
+              className={screen.name === name && !searching ? `nav-button tone-${tone} active` : `nav-button tone-${tone}`}
               onClick={() => {
                 setQuery("");
                 setScreen({ name } as Screen);
               }}
             >
+              <Icon name={icon} />
               {label}
             </button>
           ))}
         </nav>
         <button className="primary sidebar-action" onClick={() => openSheet(personId)}>
-          Log a meeting
+          <span className="with-icon">
+            <Icon name="plus" />
+            Log a meeting
+          </span>
           <kbd className="kbd">⌘N</kbd>
         </button>
         <button
-          className={screen.name === "settings" ? "nav-button active" : "nav-button"}
+          className={screen.name === "settings" ? "nav-button tone-none active" : "nav-button tone-none"}
           onClick={() => {
             setQuery("");
             setScreen({ name: "settings" });
           }}
         >
+          <Icon name="gear" />
           Settings
         </button>
       </aside>

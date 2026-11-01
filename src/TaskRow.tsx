@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { TaskAction } from "./db";
 import { TaskDetails } from "./TaskDetails";
+import { ChipButton, Icon } from "./icons";
 import { DueChips } from "./ui";
 import {
   formatDay,
@@ -176,26 +177,46 @@ export function TaskRow({
         )}
         {quick && active && (
           <div className="chips">
-            <button type="button" className="chip" onClick={() => shift(1)}>
+            <ChipButton icon="clock" tone="day" onClick={() => shift(1)}>
               Snooze a day
-            </button>
-            <button type="button" className="chip" onClick={() => shift(7)}>
+            </ChipButton>
+            <ChipButton icon="calendar" tone="week" onClick={() => shift(7)}>
               Snooze a week
-            </button>
+            </ChipButton>
             {onAction && (
               <>
-                <button type="button" className="chip" onClick={() => onAction({ type: "patch", patch: { pinned: !task.pinned } })}>
+                <ChipButton
+                  icon="pin"
+                  tone="pin"
+                  className={task.pinned ? "selected" : ""}
+                  onClick={() => onAction({ type: "patch", patch: { pinned: !task.pinned } })}
+                >
                   {task.pinned ? "Unpin" : "Pin"}
-                </button>
-                <button type="button" className="chip" onClick={() => onAction({ type: "patch", patch: { evening: !task.evening } })}>
+                </ChipButton>
+                <ChipButton
+                  icon="moon"
+                  tone="evening"
+                  className={task.evening ? "selected" : ""}
+                  onClick={() => onAction({ type: "patch", patch: { evening: !task.evening } })}
+                >
                   This evening
-                </button>
-                <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "in_progress" })}>
+                </ChipButton>
+                <ChipButton
+                  icon="play"
+                  tone="progress"
+                  className={task.status === "in_progress" ? "selected" : ""}
+                  onClick={() => onAction({ type: "status", status: "in_progress" })}
+                >
                   In progress
-                </button>
-                <button type="button" className="chip" onClick={() => onAction({ type: "status", status: "waiting" })}>
+                </ChipButton>
+                <ChipButton
+                  icon="hourglass"
+                  tone="wait"
+                  className={task.status === "waiting" ? "selected" : ""}
+                  onClick={() => onAction({ type: "status", status: "waiting" })}
+                >
                   Waiting on them
-                </button>
+                </ChipButton>
               </>
             )}
           </div>
@@ -218,7 +239,8 @@ export function TaskRow({
         )}
       </div>
       {active ? (
-        <button className="text-button" onClick={onSetAside}>
+        <button className="text-button tone-aside" onClick={onSetAside}>
+          <Icon name="box" />
           Set aside
         </button>
       ) : task.status === "set_aside" || task.status === "waiting" ? (

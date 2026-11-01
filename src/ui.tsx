@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Icon } from "./icons";
 import { duePresets, formatDay } from "./logic";
 
 export type Line = { key: string; text: string; indent: number; done?: boolean; folded?: boolean };
@@ -88,6 +89,22 @@ export function BulletList({
   );
 }
 
+function dueTone(id: string): string {
+  if (id === "eod") return "eod";
+  if (id === "tomorrow") return "day";
+  if (id === "two") return "week";
+  if (id === "eow") return "evening";
+  return "next";
+}
+
+function dueIcon(id: string): "sun" | "clock" | "calendar" | "flag" | "arrow" {
+  if (id === "eod") return "sun";
+  if (id === "tomorrow") return "clock";
+  if (id === "two") return "calendar";
+  if (id === "eow") return "flag";
+  return "arrow";
+}
+
 export function DueChips({
   dueOn,
   today,
@@ -119,16 +136,18 @@ export function DueChips({
         <button
           key={preset.id}
           type="button"
-          className={dueOn === preset.date ? "chip selected" : "chip"}
+          className={dueOn === preset.date ? `chip tone-${dueTone(preset.id)} selected` : `chip tone-${dueTone(preset.id)}`}
           aria-pressed={dueOn === preset.date}
           aria-label={`${preset.label}, ${formatDay(preset.date, today)}, for task ${index + 1}`}
           tabIndex={-1}
           onClick={() => onChoose(preset.date)}
         >
+          <Icon name={dueIcon(preset.id)} />
           {preset.label}
         </button>
       ))}
-      <label className={custom ? "chip selected" : "chip"}>
+      <label className={custom ? "chip tone-progress selected" : "chip tone-progress"}>
+        <Icon name="calendar" />
         Pick a date
         <input
           className="sr-only"
@@ -141,12 +160,13 @@ export function DueChips({
       </label>
       <button
         type="button"
-        className={dueOn === null ? "chip selected" : "chip"}
+        className={dueOn === null ? "chip tone-none selected" : "chip tone-none"}
         aria-pressed={dueOn === null}
         aria-label={`No date for task ${index + 1}`}
         tabIndex={-1}
         onClick={() => onChoose(null)}
       >
+        <Icon name="slash" />
         No date
       </button>
     </div>

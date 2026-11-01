@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { mentioned } from "./tools";
 import type { PersonPatch, TaskAction } from "./db";
+import { ChipButton } from "./icons";
 import { TaskRow } from "./TaskRow";
 import {
   companyName,
@@ -141,15 +142,15 @@ export function PersonPage({
       </div>
 
       <div className="chips">
-        <button type="button" className="chip" onClick={tools.onBrief}>
+        <ChipButton icon="list" tone="pin" onClick={tools.onBrief}>
           Brief
-        </button>
-        <button type="button" className="chip" onClick={tools.onBeside}>
+        </ChipButton>
+        <ChipButton icon="squares" tone="day" onClick={tools.onBeside}>
           Open beside
-        </button>
-        <button type="button" className="chip" onClick={tools.onExport}>
+        </ChipButton>
+        <ChipButton icon="file" tone="progress" onClick={tools.onExport}>
           Export open tasks
-        </button>
+        </ChipButton>
         <button type="button" className="chip" onClick={tools.onToggleHide}>
           {data.settings.hideFinished ? "Show finished meetings" : "Hide finished meetings"}
         </button>
@@ -175,12 +176,12 @@ export function PersonPage({
       >
         <summary>About {person.name}</summary>
         <div className="chips">
-          <button type="button" className="chip" onClick={() => tools.onPerson({ starred: !person.starred })}>
+          <ChipButton icon="star" tone="eod" className={person.starred ? "selected" : ""} onClick={() => tools.onPerson({ starred: !person.starred })}>
             {person.starred ? "Starred" : "Star"}
-          </button>
-          <button type="button" className="chip" onClick={() => tools.onPerson({ paused: !person.paused })}>
+          </ChipButton>
+          <ChipButton icon="pause" tone="wait" className={person.paused ? "selected" : ""} onClick={() => tools.onPerson({ paused: !person.paused })}>
             {person.paused ? "Paused" : "Pause"}
-          </button>
+          </ChipButton>
           <button type="button" className="chip" onClick={() => tools.onPerson({ sequential: !person.sequential })}>
             {person.sequential ? "Showing only the next task" : "Only the next task on home"}
           </button>
@@ -517,9 +518,9 @@ function MeetingCard({
         }}
       />
       <div className="chips">
-        <button type="button" className="chip" onClick={() => onMeeting(meeting, { pinned: !meeting.pinned })}>
+        <ChipButton icon="pin" tone="pin" className={meeting.pinned ? "selected" : ""} onClick={() => onMeeting(meeting, { pinned: !meeting.pinned })}>
           {meeting.pinned ? "Unpin this meeting" : "Pin this meeting"}
-        </button>
+        </ChipButton>
         {meeting.calendarUid && <span className="chip">Notes linked to this calendar meeting</span>}
         {meeting.sourceUrl && (
           <button type="button" className="chip" onClick={() => void openUrl(meeting.sourceUrl ?? "")}>
