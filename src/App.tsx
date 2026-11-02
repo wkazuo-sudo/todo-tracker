@@ -108,6 +108,26 @@ export default function App() {
     const personId = personFromUrl();
     return personId ? { name: "person", personId } : { name: "home" };
   });
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  const past = useRef<Screen[]>([]);
+  const [canBack, setCanBack] = useState(false);
+  const openScreen = useCallback((next: Screen) => {
+    const current = screenRef.current;
+    if (JSON.stringify(current) === JSON.stringify(next)) return;
+    past.current.push(current);
+    if (past.current.length > 40) past.current.shift();
+    setCanBack(true);
+    screenRef.current = next;
+    setScreen(next);
+  }, []);
+  const goBack = useCallback(() => {
+    const prev = past.current.pop();
+    setCanBack(past.current.length > 0);
+    if (!prev) return;
+    screenRef.current = prev;
+    setScreen(prev);
+  }, []);
   const [query, setQuery] = useState("");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetPersonId, setSheetPersonId] = useState<string | null>(null);
@@ -301,7 +321,12 @@ export default function App() {
 
   useEffect(() => {
     if (!data || screen.name !== "person") return;
-    if (!data.people.some((person) => person.id === screen.personId)) setScreen({ name: "home" });
+    if (!data.people.some((person) => person.id === screen.personId)) {
+      past.current = past.current.filter((item) => item.name !== "person" || item.personId !== screen.personId);
+      setCanBack(past.current.length > 0);
+      screenRef.current = { name: "home" };
+      setScreen({ name: "home" });
+    }
   }, [data, screen]);
 
   const openSheet = useCallback((personId: string | null, date?: string, event?: CalEvent | null) => {
@@ -318,7 +343,7 @@ export default function App() {
     });
     void onShowPerson((personId) => {
       setQuery("");
-      setScreen({ name: "person", personId });
+      openScreen({ name: "person", personId });
     }).then((fn) => {
       const previous = unlisten;
       unlisten = () => {
@@ -344,8 +369,8 @@ export default function App() {
       if (!task) return;
       const meeting = current?.meetings.find((item) => item.id === task.meetingId);
       setQuery("");
-      if (meeting) setScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
-      else if (task.requesterId) setScreen({ name: "person", personId: task.requesterId });
+      if (meeting) openScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
+      else if (task.requesterId) openScreen({ name: "person", personId: task.requesterId });
     }).then((fn) => {
       stop = fn;
     });
@@ -413,18 +438,21 @@ export default function App() {
       } else if (meta && key === "k") {
         event.preventDefault();
         setPalette("");
+      } else if (meta && event.key === "[") {
+        event.preventDefault();
+        goBack();
       } else if (meta && key === "1") {
         event.preventDefault();
         setQuery("");
-        setScreen({ name: "home" });
+        openScreen({ name: "home" });
       } else if (meta && key === "2") {
         event.preventDefault();
         setQuery("");
-        setScreen({ name: "people" });
+        openScreen({ name: "people" });
       } else if (meta && key === "3") {
         event.preventDefault();
         setQuery("");
-        setScreen({ name: "review" });
+        openScreen({ name: "review" });
       } else if (meta && key === "p") {
         event.preventDefault();
         window.print();
@@ -457,14 +485,14 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openSheet, redo, screen, sheetOpen, undo]);
+  }, [goBack, openScreen, openSheet, redo, screen, sheetOpen, undo]);
 
   function openTask(task: Task) {
     const meeting = data?.meetings.find((item) => item.id === task.meetingId);
     setQuery("");
-    if (meeting) setScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
-    else if (task.requesterId) setScreen({ name: "person", personId: task.requesterId });
-    else setScreen({ name: "someday" });
+    if (meeting) openScreen({ name: "person", personId: meeting.personId, meetingId: meeting.id });
+    else if (task.requesterId) openScreen({ name: "person", personId: task.requesterId });
+    else openScreen({ name: "someday" });
   }
 
   async function onTask(task: Task, action: TaskAction) {
@@ -494,7 +522,7 @@ export default function App() {
       setQuery("");
       if (!keep) {
         setSheetOpen(false);
-        setScreen({ name: "person", personId: result.personId });
+        openScreen({ name: "person", personId: result.personId });
       }
       showToast(
         {
@@ -517,7 +545,7 @@ export default function App() {
     if (!db) return;
     await undoSave(db, result, markDoneIds);
     await refresh(db);
-    if (result.createdPerson) setScreen({ name: "home" });
+    if (result.createdPerson) openScreen({ name: "home" });
   }
 
   async function exportText(contents: string, name: string) {
@@ -592,7 +620,7 @@ export default function App() {
               className={screen.name === name && !searching ? `nav-button tone-${tone} active` : `nav-button tone-${tone}`}
               onClick={() => {
                 setQuery("");
-                setScreen({ name } as Screen);
+                openScreen({ name } as Screen);
               }}
             >
               <Icon name={icon} />
@@ -611,7 +639,7 @@ export default function App() {
           className={screen.name === "settings" ? "nav-button tone-none active" : "nav-button tone-none"}
           onClick={() => {
             setQuery("");
-            setScreen({ name: "settings" });
+            openScreen({ name: "settings" });
           }}
         >
           <Icon name="gear" />
@@ -620,6 +648,10 @@ export default function App() {
       </aside>
       <main className="main">
         <div className="main-inner">
+          <button className="back no-print" type="button" onClick={goBack} disabled={!canBack}>
+            <Icon name="back" />
+            Back
+          </button>
           {error && <p className="error-banner">The app could not open your saved tasks. {error}</p>}
           {!error && !data && <Skeleton />}
           {data && searching && (
@@ -628,7 +660,7 @@ export default function App() {
               query={query}
               onPerson={(id, meetingId) => {
                 setQuery("");
-                setScreen({ name: "person", personId: id, meetingId });
+                openScreen({ name: "person", personId: id, meetingId });
               }}
             />
           )}
@@ -643,15 +675,15 @@ export default function App() {
               const linked = data.meetings.find((meeting) => meeting.calendarUid && meeting.calendarUid === event.id);
               if (linked) {
                 setQuery("");
-                setScreen({ name: "person", personId: linked.personId, meetingId: linked.id });
+                openScreen({ name: "person", personId: linked.personId, meetingId: linked.id });
                 return;
               }
               const person = personInTitle(data.people, event.title);
               openSheet(person?.id ?? null, event.date, event);
             }}
-            onOpenSettings={() => setScreen({ name: "settings" })}
+            onOpenSettings={() => openScreen({ name: "settings" })}
             onOpenTask={openTask}
-              onOpenPerson={(id) => setScreen({ name: "person", personId: id })}
+              onOpenPerson={(id) => openScreen({ name: "person", personId: id })}
               onLog={(id) => openSheet(id ?? null)}
               onOpenDay={(date) => openSheet(null, date)}
               onAction={(task, action) => void onTask(task, action)}
@@ -681,10 +713,10 @@ export default function App() {
             <People
               data={data}
               today={today}
-              onOpen={(id) => setScreen({ name: "person", personId: id })}
+              onOpen={(id) => openScreen({ name: "person", personId: id })}
               onAdd={async (name) => {
                 const id = await mutate((database) => addPerson(database, name));
-                if (id) setScreen({ name: "person", personId: id });
+                if (id) openScreen({ name: "person", personId: id });
               }}
             />
           )}
@@ -707,6 +739,9 @@ export default function App() {
                 const id = screen.personId;
                 void mutate(async (database) => {
                   await deletePerson(database, id);
+                  past.current = past.current.filter((item) => item.name !== "person" || item.personId !== id);
+                  setCanBack(past.current.length > 0);
+                  screenRef.current = { name: "home" };
                   setScreen({ name: "home" });
                 });
               }}
@@ -721,7 +756,7 @@ export default function App() {
                 onGuests: (meetingId, ids) => void mutate((database) => updateGuests(database, meetingId, ids)),
                 onDecision: (meetingId, body) => void mutate((database) => addDecision(database, meetingId, body)),
                 onDeleteDecision: (id) => void mutate((database) => deleteDecision(database, id)),
-                onBrief: () => setScreen({ name: "brief", personId: screen.personId }),
+                onBrief: () => openScreen({ name: "brief", personId: screen.personId }),
                 onBeside: () => {
                   const person = data.people.find((item) => item.id === screen.personId);
                   void openBeside(screen.personId, person?.name ?? "To-Do Tracker").catch(() =>
@@ -786,7 +821,7 @@ export default function App() {
           {data && !searching && screen.name === "boxes" && <BoxesPage data={data} today={today} onOpenTask={openTask} />}
           {data && !searching && screen.name === "someday" && <SomedayPage data={data} onOpenTask={openTask} />}
           {data && !searching && screen.name === "brief" && (
-            <BriefPage data={data} personId={screen.personId} today={today} onBack={() => setScreen({ name: "person", personId: screen.personId })} />
+            <BriefPage data={data} personId={screen.personId} today={today} onBack={goBack} />
           )}
           {data && !searching && screen.name === "settings" && (
             <SettingsPage
@@ -820,7 +855,7 @@ export default function App() {
               onExportText={() => void exportText(boardText(data, today), "todo-tracker.txt")}
               onExportCsv={() => void exportText(boardCsv(data), "todo-tracker.csv")}
               onPrint={() => {
-                setScreen({ name: "home" });
+                openScreen({ name: "home" });
                 window.setTimeout(() => window.print(), 50);
               }}
             />
@@ -849,10 +884,10 @@ export default function App() {
           data={data}
           initialQuery={palette}
           onClose={() => setPalette(null)}
-          onPerson={(id) => setScreen({ name: "person", personId: id })}
+          onPerson={(id) => openScreen({ name: "person", personId: id })}
           onTask={openTask}
           onDone={(task) => void onTask(task, { type: "status", status: "done" })}
-          onScreen={(name) => setScreen({ name } as Screen)}
+          onScreen={(name) => openScreen({ name } as Screen)}
           onLog={() => openSheet(null)}
           onPrint={() => window.print()}
           onToggleTheme={() => setting("theme", data.settings.theme === "dark" ? "light" : "dark")}

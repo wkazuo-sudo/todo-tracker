@@ -27,7 +27,8 @@ export type IconName =
   | "star"
   | "pause"
   | "speaker"
-  | "link";
+  | "link"
+  | "back";
 
 const stroke = {
   fill: "none",
@@ -96,6 +97,8 @@ function glyph(name: IconName): ReactNode {
       return <path d="M4.2 13.6V2.6h6.6L9.2 5.6l1.6 3H4.2" />;
     case "arrow":
       return <path d="M3 8h10M9.2 4.4 12.8 8 9.2 11.6" />;
+    case "back":
+      return <path d="M13 8H3M6.8 4.4 3.2 8l3.6 3.6" />;
     case "slash":
       return (
         <>
