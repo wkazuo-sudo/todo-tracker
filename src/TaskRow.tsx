@@ -157,15 +157,12 @@ export function TaskRow({
           </button>
         )}
         <span className="ask">
-          {personName(people, task.requesterId)}
-          {" · "}
-          {meeting?.title ?? "Meeting"}
-          {" · "}
-          Asked {asked}
-          {" · "}
-          {overdue ? <span className="late">Late · {due}</span> : due}
-          {allChecks > 0 ? ` · ${doneChecks} of ${allChecks}` : ""}
-          {task.movedCount > 0 ? ` · Moved ${task.movedCount}` : ""}
+          <span className="who">Asked by {personName(people, task.requesterId)}</span>
+          <span>{meeting?.title ?? "No meeting"}</span>
+          <span>Asked {asked}</span>
+          {overdue ? <span className="late">{due}</span> : <span>{due}</span>}
+          {allChecks > 0 ? <span>{doneChecks} of {allChecks} checks</span> : null}
+          {task.movedCount > 0 ? <span>Moved {task.movedCount}</span> : null}
         </span>
         {span !== null && active && (
           <span className="span" aria-hidden="true">

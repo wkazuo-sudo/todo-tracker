@@ -35,6 +35,15 @@ import {
   type Task,
 } from "./logic";
 
+function groupNote(bucket: Bucket): string {
+  if (bucket === "overdue") return "The day for these has already passed.";
+  if (bucket === "today") return "For today, before the day ends.";
+  if (bucket === "evening") return "Still today, set for this evening.";
+  if (bucket === "this_week") return "After today, and still this week.";
+  if (bucket === "later") return "Further out than this week.";
+  return "No day chosen yet. Drag one onto a day when you know it.";
+}
+
 type Props = {
   data: Data;
   today: string;
@@ -296,7 +305,10 @@ export function Dashboard({
                   })
                 }
               />
-              <span>{task.title}</span>
+              <span>
+                <span className="person-name">{task.title}</span>
+                <span className="person-meta">Asked by {personName(data.people, task.requesterId)}</span>
+              </span>
             </label>
           ))}
           <button
@@ -324,6 +336,7 @@ export function Dashboard({
 
       <div className="charts">
         <BarChart
+          across
           title="Tasks due in the next seven days"
           rows={days.map((day) => ({ label: day.date === today ? "Today" : weekdayShort(day.date), count: day.tasks }))}
         />
@@ -526,10 +539,13 @@ export function Dashboard({
 
       {longWait.length > 0 && (
         <section className="section" id="group-long">
-          <h2 className="section-title">
-            Waiting a long time
-            <span className="quiet"> · {longWait.length}</span>
-          </h2>
+          <div className="section-head">
+            <h2 className="section-title">
+              Waiting a long time
+              <span className="quiet"> · {longWait.length}</span>
+            </h2>
+            <p className="section-note">Open for a long while. Separate from the day groups below.</p>
+          </div>
           {longWait.map((task) => (
             <button key={task.id} className="person-row" onClick={() => onOpenTask(task)}>
               <span className="person-name">{task.title}</span>
@@ -655,7 +671,10 @@ export function Dashboard({
 
       {pinned.length > 0 && (
         <section className="section" id="group-pinned">
-          <h2 className="section-title">Pinned</h2>
+          <div className="section-head">
+            <h2 className="section-title">Pinned</h2>
+            <p className="section-note">Kept at the top, apart from the days below.</p>
+          </div>
           {pinned.map(renderTask)}
         </section>
       )}
@@ -672,14 +691,17 @@ export function Dashboard({
         if (tasks.length === 0) return null;
         return (
           <section key={group.id} id={group.id} className={group.bucket === "evening" ? "section evening-group" : "section"}>
-            <button
-              type="button"
-              className="section-title fold"
-              onClick={() => setFolded((current) => (current.includes(group.id) ? current.filter((id) => id !== group.id) : [...current, group.id]))}
-            >
-              {group.bucket === "none" ? "No due date" : bucketLabel(group.bucket)}
-              <span className="quiet"> · {tasks.length}</span>
-            </button>
+            <div className="section-head">
+              <button
+                type="button"
+                className="section-title fold"
+                onClick={() => setFolded((current) => (current.includes(group.id) ? current.filter((id) => id !== group.id) : [...current, group.id]))}
+              >
+                {group.bucket === "none" ? "No due date" : bucketLabel(group.bucket)}
+                <span className="quiet"> · {tasks.length}</span>
+              </button>
+              <p className="section-note">{groupNote(group.bucket)}</p>
+            </div>
             {group.bucket === "none" && !folded.includes(group.id) && <p className="quiet">Drag one of these onto a day.</p>}
             {!folded.includes(group.id) && tasks.map(renderTask)}
           </section>

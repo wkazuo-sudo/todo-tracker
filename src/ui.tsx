@@ -173,12 +173,20 @@ export function DueChips({
   );
 }
 
-export function BarChart({ rows, title }: { rows: { label: string; count: number }[]; title: string }) {
+export function BarChart({
+  rows,
+  title,
+  across,
+}: {
+  rows: { label: string; count: number }[];
+  title: string;
+  across?: boolean;
+}) {
   const max = Math.max(1, ...rows.map((row) => row.count));
   return (
     <section className="card chart-card">
       <h2>{title}</h2>
-      <div className="vbars tall" role="img" aria-label={title}>
+      <div className={across ? "vbars across" : "vbars tall"} role="img" aria-label={title}>
         {rows.map((row) => (
           <div className="vbar" key={row.label}>
             <span className="vbar-count">{row.count}</span>
