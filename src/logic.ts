@@ -137,6 +137,7 @@ export type Settings = {
   weekdayOnly: boolean;
   onlyPersonId: string | null;
   googleIcal: string;
+  widgetEnabled?: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -157,6 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weekdayOnly: false,
   onlyPersonId: null,
   googleIcal: "",
+  widgetEnabled: false,
 };
 
 export type Data = {

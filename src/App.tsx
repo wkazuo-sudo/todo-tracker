@@ -10,6 +10,7 @@ import {
   addPerson,
   addSection,
   applyTask,
+  applyWidgetCompletion,
   deleteDecision,
   deleteMeeting,
   deletePerson,
@@ -86,10 +87,18 @@ import {
   setTrayMenu,
   watchClose,
   writeSpotlight,
+  isMainWindow,
+  widgetStatus,
+  publishWidgetSnapshot,
+  readWidgetCommands,
+  acknowledgeWidgetCommand,
+  takeWidgetLinks,
+  onWidgetNavigation,
 } from "./native";
 import { transaction, type Database } from "./database";
 import { SafeHistory } from "./history";
 import { mergeCalendarEvents, SingleFlight } from "./calendarSync";
+import { createWidgetSnapshot, parseWidgetLink, type WidgetStatus } from "./widget";
 
 type Screen =
   | { name: "home" }
@@ -154,6 +163,8 @@ export default function App() {
   const [agendaPick, setAgendaPick] = useState<CalEvent | null>(null);
   const [palette, setPalette] = useState<string | null>(null);
   const [inspectedTaskId, setInspectedTaskId] = useState("");
+  const [widgetState, setWidgetState] = useState<WidgetStatus | null>(null);
+  const widgetPublishQueue = useRef<Promise<void>>(Promise.resolve());
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
   const historyRef = useRef<SafeHistory<Data, Database> | null>(null);
@@ -272,6 +283,69 @@ export default function App() {
   }, [data, today]);
 
   useEffect(() => {
+    if (!db || !isMainWindow()) return;
+    let stopped = false;
+    let running = false;
+    let unavailableUntil = 0;
+    const sync = async () => {
+      if (running || stopped || Date.now() < unavailableUntil) return;
+      running = true;
+      try {
+        const status = await widgetStatus();
+        if (stopped) return;
+        setWidgetState(status);
+        if (status.state !== "ready") { unavailableUntil = Date.now() + 60_000; return; }
+        unavailableUntil = 0;
+        const commands = await readWidgetCommands();
+        for (const command of commands) {
+          if (stopped) break;
+          let undoId: number | null = null;
+          const result = await mutate((database) => applyWidgetCompletion(database, command), {
+            throwOnError: true,
+            onCommit: (id) => { undoId = id; },
+          });
+          // The durable receipt and task completion commit together. Failed acknowledgements are safe to retry.
+          await acknowledgeWidgetCommand(command.id);
+          if (result === "completed") showToast({ message: "Task completed from your Mac widget.", undo: undoId === null ? null : () => undo(undoId!) }, 6000);
+          else if (result === "ignored" && dataRef.current?.settings.widgetEnabled) {
+            showToast({ message: "A widget completion was skipped because the task changed. Your saved task is protected.", undo: null }, 6000);
+          }
+        }
+      } catch {
+        if (!stopped) setWidgetState((current) => current ? { ...current, reason: "Widget changes are waiting to sync. They will retry automatically." } : current);
+      } finally {
+        running = false;
+      }
+    };
+    void sync();
+    const interval = window.setInterval(() => void sync(), 5000);
+    window.addEventListener("focus", sync);
+    return () => { stopped = true; window.clearInterval(interval); window.removeEventListener("focus", sync); };
+  }, [db, mutate, showToast, undo]);
+
+  useEffect(() => {
+    if (!data || widgetState?.state !== "ready" || !isMainWindow()) return;
+    const current = data;
+    widgetPublishQueue.current = widgetPublishQueue.current.catch(() => undefined).then(async () => {
+      if (dataRef.current !== current) return;
+      await publishWidgetSnapshot(createWidgetSnapshot(current));
+    }).catch(() => {
+      setWidgetState((status) => status ? { ...status, reason: "The widget could not refresh. Your saved tasks are safe; it will retry." } : status);
+    });
+  }, [data, today, widgetState?.state]);
+
+  useEffect(() => {
+    if (!db || widgetState?.state !== "ready" || !isMainWindow()) return;
+    // Refresh persisted state as well as retrying publication, including edits in another app window.
+    const interval = window.setInterval(() => {
+      void refresh(db).catch(() => {
+        setWidgetState((status) => status ? { ...status, reason: "The widget is waiting for saved tasks to refresh. It will retry automatically." } : status);
+      });
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [db, widgetState?.state, refresh]);
+
+  useEffect(() => {
     if (!data) return;
     const url = data.settings.googleIcal;
     let gone = false;
@@ -347,6 +421,46 @@ export default function App() {
     setSheetDate(date ?? null);
     setSheetOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (!data || !isMainWindow()) return;
+    let stopped = false;
+    let running = false;
+    let requested = false;
+    let unlisten = () => undefined as void;
+    const receive = async () => {
+      requested = true;
+      if (running || stopped) return;
+      running = true;
+      try {
+        while (requested && !stopped) {
+          requested = false;
+          for (const link of await takeWidgetLinks()) {
+            if (stopped) break;
+            const destination = parseWidgetLink(link);
+            if (!destination) continue;
+            if (dirtyRef.current) {
+              showToast({ message: "Save or close this meeting to open the task from your widget.", undo: null }, 6000);
+              continue;
+            }
+            setQuery("");
+            if (destination.page === "task") {
+              if (dataRef.current?.tasks.some((task) => task.id === destination.taskId)) setInspectedTaskId(destination.taskId);
+              else showToast({ message: "That task is no longer available. Your widget will refresh.", undo: null }, 5000);
+            } else {
+              setInspectedTaskId("");
+              openScreen({ name: destination.page === "capture" ? "capture" : "home" });
+            }
+          }
+        }
+      } finally { running = false; }
+    };
+    void onWidgetNavigation(() => void receive().catch(() => undefined)).then((stop) => {
+      if (stopped) stop();
+      else { unlisten = stop; void receive().catch(() => undefined); }
+    }).catch(() => undefined);
+    return () => { stopped = true; unlisten(); };
+  }, [Boolean(data), openScreen, showToast]);
 
   useEffect(() => {
     let stopped = false;
@@ -847,6 +961,8 @@ export default function App() {
           {data && !searching && screen.name === "settings" && (
             <SettingsPage
               data={data}
+              widgetStatus={widgetState}
+              onWidget={() => setting("widgetEnabled", data.settings.widgetEnabled ? "0" : "1")}
               onTheme={() => setting("theme", data.settings.theme === "dark" ? "light" : "dark")}
               onType={() => setting("typeSize", data.settings.typeSize === "large" ? "normal" : "large")}
               onKeep={() => setting("keepSheetOpen", data.settings.keepSheetOpen ? "0" : "1")}

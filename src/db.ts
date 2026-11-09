@@ -1,6 +1,7 @@
 import SqlDatabase from "@tauri-apps/plugin-sql";
 import type { Database } from "./database.ts";
 import type { CaptureEntry, CaptureKind, MeetingSaveReceipt } from "./capture.ts";
+import { handleWidgetCommand, type WidgetCommand } from "./widget.ts";
 import {
   addDays,
   findPersonByName,
@@ -281,6 +282,7 @@ function readSettings(rows: { key: string; value: string }[]): Settings {
     weekdayOnly: get("weekdayOnly") === "1",
     onlyPersonId: get("onlyPersonId") || null,
     googleIcal: get("googleIcal") || "",
+    widgetEnabled: get("widgetEnabled") === "1",
   };
 }
 
@@ -1050,6 +1052,22 @@ export async function setTaskStatus(db: Database, id: string, status: TaskStatus
   }
 }
 
+/** Must run inside the same pinned transaction as the task's normal completion. */
+export async function applyWidgetCompletion(db: Database, command: WidgetCommand): Promise<"completed" | "ignored" | "duplicate"> {
+  return handleWidgetCommand(command, {
+    hasReceipt: async (id) => (await db.select<{ command_id: string }[]>(
+      "SELECT command_id FROM widget_command_receipts WHERE command_id = $1", [id],
+    )).length > 0,
+    load: () => loadAll(db),
+    complete: (id) => setTaskStatus(db, id, "done"),
+    recordReceipt: async (item) => {
+      await db.execute("INSERT INTO widget_command_receipts (command_id, task_id, handled_at) VALUES ($1, $2, $3)",
+        [item.id, item.task_id, now()]);
+      await db.execute("DELETE FROM widget_command_receipts WHERE handled_at < $1", [new Date(Date.now() - 90 * 86_400_000).toISOString()]);
+    },
+  });
+}
+
 export type TaskPatch = {
   priority?: Priority;
   pinned?: boolean;
@@ -1667,6 +1685,7 @@ export async function replaceAll(db: Database, data: DataWithCaptures): Promise<
     ["weekdayOnly", data.settings.weekdayOnly ? "1" : "0"],
     ["onlyPersonId", data.settings.onlyPersonId ?? ""],
     ["googleIcal", data.settings.googleIcal ?? ""],
+    ["widgetEnabled", data.settings.widgetEnabled ? "1" : "0"],
   ];
   for (const bullet of data.bullets ?? []) {
     await db.execute(

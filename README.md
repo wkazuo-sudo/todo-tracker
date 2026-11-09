@@ -10,6 +10,8 @@ Calendar overlap suggests a meeting; you choose whether to attach it. Existing G
 
 People, Settings and existing planning features remain available. Press Command-K to jump somewhere. See [design and release notes](docs/workspace-release.md) for benchmarks, verification and limitations.
 
+The meeting composer has a wide, wrapping notes editor, compact task rows and a fixed save footer. A native macOS sidebar widget is prepared in source for your overdue and today tasks. Activation requires a signed Apple App Group and the full Xcode widget toolchain; it is unavailable in the current local build. See [meeting and widget release notes](docs/meeting-widget-release.md) and [widget setup](native-widget/README.md).
+
 ## Your notes stay on this Mac
 
 People, meetings, and tasks are saved in a private file that belongs to the app. They are not part of this project, and they are not uploaded to GitHub.

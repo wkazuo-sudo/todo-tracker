@@ -1,5 +1,9 @@
 # Release verification
 
+The 9 November meeting-composer update and widget preparation are recorded in
+[meeting and widget release](meeting-widget-release.md). The evidence below
+describes the earlier 6 November release.
+
 Release date: 6 November 2026. Selected layout: D — Workspace. Baseline rollback commit: `05e635a1620fdd50862d7ebbbf794a219e3763b9`.
 
 ## Scope and evidence

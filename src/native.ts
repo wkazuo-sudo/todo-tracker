@@ -8,6 +8,39 @@ import {
   requestPermission,
   sendNotification,
 } from "@tauri-apps/plugin-notification";
+import type { WidgetCommand, WidgetSnapshot, WidgetStatus } from "./widget";
+
+export function isMainWindow(): boolean {
+  try { return getCurrentWindow().label === "main"; } catch { return false; }
+}
+
+export async function widgetStatus(): Promise<WidgetStatus> {
+  try { return await invoke<WidgetStatus>("widget_status"); } catch {
+    return { state: "not_available", reason: "The Mac widget is unavailable in this build.", pending_command_count: 0, generated_at: null };
+  }
+}
+
+export async function publishWidgetSnapshot(snapshot: WidgetSnapshot): Promise<void> {
+  await invoke("publish_widget_snapshot", { snapshot });
+  await invoke("reload_widget_timeline");
+}
+
+export async function readWidgetCommands(): Promise<WidgetCommand[]> {
+  return invoke<WidgetCommand[]>("read_widget_commands");
+}
+
+export async function acknowledgeWidgetCommand(commandId: string): Promise<void> {
+  await invoke("acknowledge_widget_command", { commandId });
+  await invoke("reload_widget_timeline");
+}
+
+export async function takeWidgetLinks(): Promise<string[]> {
+  return invoke<string[]>("take_widget_links");
+}
+
+export async function onWidgetNavigation(run: () => void): Promise<UnlistenFn> {
+  return listen("widget-navigation", run);
+}
 
 export type CalEvent = { id: string; date: string; time: string; title: string; url: string; start?: string; end?: string; allDay?: boolean };
 

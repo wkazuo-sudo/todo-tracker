@@ -1,0 +1,179 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 60;
+	objects = {
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A00000000000000000000010 = { CreatedOnToolsVersion = 16.0; };
+					A00000000000000000000011 = { CreatedOnToolsVersion = 16.0; };
+				};
+			};
+			buildConfigurationList = A00000000000000000000080 /* Project configs */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = A00000000000000000000003;
+			productRefGroup = A00000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000010 /* ToDoTrackerWidget */,
+				A00000000000000000000011 /* WidgetReloadHelper */,
+			);
+		};
+		A00000000000000000000003 /* Main group */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000005 /* Widget Sources */,
+				A00000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000006 /* ToDoTrackerWidget.appex */,
+				A00000000000000000000007 /* todo-widgetctl */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000005 /* Widget Sources */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000008 /* ToDoTrackerWidget.swift */,
+				A00000000000000000000009 /* WidgetReloadHelper.swift */,
+			);
+			path = .;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000006 /* ToDoTrackerWidget.appex */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.app-extension;
+			includeInIndex = 0;
+			path = ToDoTrackerWidget.appex;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		A00000000000000000000007 /* todo-widgetctl */ = {
+			isa = PBXFileReference;
+			explicitFileType = "compiled.mach-o.executable";
+			includeInIndex = 0;
+			path = "todo-widgetctl";
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		A00000000000000000000008 /* ToDoTrackerWidget.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = ToDoTrackerWidget.swift;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000009 /* WidgetReloadHelper.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = WidgetReloadHelper.swift;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000010 /* ToDoTrackerWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000081 /* Widget configs */;
+			buildPhases = (
+				A00000000000000000000030 /* Sources */,
+				A00000000000000000000031 /* Frameworks */,
+				A00000000000000000000032 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = ToDoTrackerWidget;
+			productName = ToDoTrackerWidget;
+			productReference = A00000000000000000000006 /* ToDoTrackerWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A00000000000000000000011 /* WidgetReloadHelper */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000082 /* Helper configs */;
+			buildPhases = (
+				A00000000000000000000033 /* Sources */,
+				A00000000000000000000034 /* Frameworks */,
+				A00000000000000000000035 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = WidgetReloadHelper;
+			productName = todo-widgetctl;
+			productReference = A00000000000000000000007 /* todo-widgetctl */;
+			productType = "com.apple.product-type.tool";
+		};
+		A00000000000000000000030 /* Widget Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000040 /* ToDoTrackerWidget.swift in Sources */,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000031 /* Widget Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000050 /* AppIntents.framework in Frameworks */,
+				A00000000000000000000051 /* Foundation.framework in Frameworks */,
+				A00000000000000000000052 /* SwiftUI.framework in Frameworks */,
+				A00000000000000000000053 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000032 /* Widget Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000033 /* Helper Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A00000000000000000000041 /* WidgetReloadHelper.swift in Sources */,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000034 /* Helper Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000051 /* Foundation.framework in Frameworks */,
+				A00000000000000000000053 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000035 /* Helper Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A00000000000000000000040 /* ToDoTrackerWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000008 /* ToDoTrackerWidget.swift */; };
+		A00000000000000000000041 /* WidgetReloadHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009 /* WidgetReloadHelper.swift */; };
+		A00000000000000000000050 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000060 /* AppIntents.framework */; };
+		A00000000000000000000051 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000061 /* Foundation.framework */; };
+		A00000000000000000000052 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000062 /* SwiftUI.framework */; };
+		A00000000000000000000053 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A00000000000000000000063 /* WidgetKit.framework */; };
+		A00000000000000000000060 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
+		A00000000000000000000061 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		A00000000000000000000062 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		A00000000000000000000063 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		A00000000000000000000070 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; CLANG_WARN_DOCUMENTATION_COMMENTS = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A00000000000000000000071 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+		A00000000000000000000072 /* Widget Debug */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = "$(WIDGET_ENTITLEMENTS)"; CODE_SIGN_IDENTITY = "$(TODO_TRACKER_SIGNING_IDENTITY)"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(TODO_TRACKER_TEAM_ID)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = "$(WIDGET_INFO_PLIST)"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks"; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.kazuo.todotracker.widget; PRODUCT_NAME = ToDoTrackerWidget; SDKROOT = macosx; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A00000000000000000000073 /* Widget Release */ = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_ENTITLEMENTS = "$(WIDGET_ENTITLEMENTS)"; CODE_SIGN_IDENTITY = "$(TODO_TRACKER_SIGNING_IDENTITY)"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(TODO_TRACKER_TEAM_ID)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = "$(WIDGET_INFO_PLIST)"; LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks"; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.kazuo.todotracker.widget; PRODUCT_NAME = ToDoTrackerWidget; SDKROOT = macosx; SKIP_INSTALL = YES; SUPPORTED_PLATFORMS = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+		A00000000000000000000074 /* Helper Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "$(TODO_TRACKER_SIGNING_IDENTITY)"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(TODO_TRACKER_TEAM_ID)"; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.kazuo.todotracker.widgetctl; PRODUCT_NAME = "todo-widgetctl"; SDKROOT = macosx; SKIP_INSTALL = NO; SUPPORTED_PLATFORMS = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A00000000000000000000075 /* Helper Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "$(TODO_TRACKER_SIGNING_IDENTITY)"; CODE_SIGN_STYLE = Manual; DEVELOPMENT_TEAM = "$(TODO_TRACKER_TEAM_ID)"; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = com.kazuo.todotracker.widgetctl; PRODUCT_NAME = "todo-widgetctl"; SDKROOT = macosx; SKIP_INSTALL = NO; SUPPORTED_PLATFORMS = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+		A00000000000000000000080 /* Project configs */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000070, A00000000000000000000071,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A00000000000000000000081 /* Widget configs */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000072, A00000000000000000000073,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A00000000000000000000082 /* Helper configs */ = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000074, A00000000000000000000075,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}

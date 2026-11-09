@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Icon } from "./icons";
 import { duePresets, formatDay } from "./logic";
 
@@ -17,20 +17,49 @@ export function BulletList({
   onChange,
   placeholder,
   label,
+  multiline = false,
 }: {
   lines: Line[];
   onChange: (lines: Line[]) => void;
   placeholder: string;
   label: string;
+  multiline?: boolean;
 }) {
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
+  const refs = useRef<Array<HTMLInputElement | HTMLTextAreaElement | null>>([]);
+  const groupRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!multiline) return;
+    const fitLines = () => {
+      refs.current.forEach((node) => {
+        if (!(node instanceof HTMLTextAreaElement)) return;
+        node.style.height = "auto";
+        node.style.height = `${node.scrollHeight}px`;
+      });
+    };
+    fitLines();
+    if (!groupRef.current) return;
+    let previousWidth = -1;
+    let frame = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.width === previousWidth) return;
+      previousWidth = entry.contentRect.width;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(fitLines);
+    });
+    observer.observe(groupRef.current);
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
+  }, [lines, multiline]);
 
   function change(next: Line[], focus: number) {
     onChange(next.length > 0 ? next : [{ key: crypto.randomUUID(), text: "", indent: 0 }]);
     window.setTimeout(() => refs.current[focus]?.focus(), 0);
   }
 
-  function onKey(event: ReactKeyboardEvent<HTMLInputElement>, index: number) {
+  function onKey(event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, index: number) {
     const line = lines[index];
     if (event.key === "Tab") {
       event.preventDefault();
@@ -39,6 +68,7 @@ export function BulletList({
       return;
     }
     if (event.key === "Enter") {
+      if (multiline && event.shiftKey) return;
       event.preventDefault();
       const next = [...lines];
       next.splice(index + 1, 0, { key: crypto.randomUUID(), text: "", indent: line.indent });
@@ -58,7 +88,7 @@ export function BulletList({
   });
 
   return (
-    <div className="bullets" role="group" aria-label={label}>
+    <div ref={groupRef} className="bullets" role="group" aria-label={label}>
       {lines.map((line, index) =>
         hidden.has(index) ? null : (
           <div className="bullet-row" key={line.key} style={{ paddingLeft: line.indent * 22 }}>
@@ -70,18 +100,36 @@ export function BulletList({
             >
               {line.folded ? "▸" : "•"}
             </button>
-            <input
-              ref={(node) => {
-                refs.current[index] = node;
-              }}
-              value={line.text}
-              placeholder={index === 0 ? placeholder : ""}
-              aria-label={`${label} ${index + 1}`}
-              onChange={(event) =>
-                onChange(lines.map((item, itemIndex) => (itemIndex === index ? { ...item, text: event.target.value } : item)))
-              }
-              onKeyDown={(event) => onKey(event, index)}
-            />
+            {multiline ? (
+              <textarea
+                ref={(node) => {
+                  refs.current[index] = node;
+                }}
+                rows={1}
+                value={line.text}
+                placeholder={index === 0 ? placeholder : ""}
+                aria-label={`${label} ${index + 1}`}
+                onChange={(event) => {
+                  event.currentTarget.style.height = "auto";
+                  event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`;
+                  onChange(lines.map((item, itemIndex) => (itemIndex === index ? { ...item, text: event.target.value } : item)));
+                }}
+                onKeyDown={(event) => onKey(event, index)}
+              />
+            ) : (
+              <input
+                ref={(node) => {
+                  refs.current[index] = node;
+                }}
+                value={line.text}
+                placeholder={index === 0 ? placeholder : ""}
+                aria-label={`${label} ${index + 1}`}
+                onChange={(event) =>
+                  onChange(lines.map((item, itemIndex) => (itemIndex === index ? { ...item, text: event.target.value } : item)))
+                }
+                onKeyDown={(event) => onKey(event, index)}
+              />
+            )}
           </div>
         ),
       )}

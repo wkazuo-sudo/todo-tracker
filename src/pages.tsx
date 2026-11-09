@@ -14,6 +14,7 @@ import {
 import { hoursLine, startLine } from "./tools";
 import { ChipButton, Icon } from "./icons";
 import { BarChart } from "./ui";
+import type { WidgetStatus } from "./widget";
 
 type Command = { id: string; label: string; hint: string; run: () => void };
 
@@ -355,6 +356,8 @@ export function BriefPage({
 
 export function SettingsPage({
   data,
+  widgetStatus,
+  onWidget,
   onTheme,
   onType,
   onKeep,
@@ -372,6 +375,8 @@ export function SettingsPage({
   onPrint,
 }: {
   data: Data;
+  widgetStatus: WidgetStatus | null;
+  onWidget: () => void;
   onTheme: () => void;
   onType: () => void;
   onKeep: () => void;
@@ -490,6 +495,22 @@ export function SettingsPage({
         )}
       </section>
       <section className="card">
+        <h2>Mac sidebar widget</h2>
+        <p className="quiet">Your overdue and today tasks, with completion buttons and a shortcut to Quick capture.</p>
+        {widgetStatus?.state === "ready" ? (
+          <>
+            <button type="button" className={settings.widgetEnabled ? "chip selected" : "chip"} onClick={onWidget} aria-pressed={Boolean(settings.widgetEnabled)}>
+              {settings.widgetEnabled ? "Widget sharing on" : "Enable widget sharing"}
+            </button>
+            <p className="quiet">Click the clock in the menu bar → Edit Widgets → To-Do Tracker. Add a small, medium, or large widget.</p>
+            <p className="quiet">Only task titles and dates are shared. Completions wait to sync while the app is closed.</p>
+            {widgetStatus.reason && <p role="status" className="quiet">{widgetStatus.reason}</p>}
+          </>
+        ) : (
+          <p role="status" className="quiet">{widgetStatus?.reason || "Checking Mac widget availability…"}</p>
+        )}
+      </section>
+      <section className="card">
         <h2>Outside the window</h2>
         <div className="chips">
           <ChipButton icon="speaker" tone="day" onClick={onSay}>
@@ -500,7 +521,7 @@ export function SettingsPage({
           </button>
         </div>
         <p className="quiet">
-          Command-Shift-N logs a meeting from anywhere. Command-Shift-Y says what is due. The menu bar icon lists today’s names.
+          Command-Shift-N opens Quick capture from anywhere. Command-Shift-Y says what is due. The menu bar icon lists due tasks.
           A file named Due today sits in Documents, so Spotlight can find a person or a due item. This app cannot add a Dock menu, so that same list lives in the menu bar.
         </p>
       </section>

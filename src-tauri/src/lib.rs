@@ -10,6 +10,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 mod persistence;
+mod widget;
+mod widget_navigation;
 
 const MAX_CALENDAR_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -877,6 +879,15 @@ pub fn run() {
             "meeting_save_receipt_payload_hash",
             "ALTER TABLE meeting_save_receipts ADD COLUMN payload_hash TEXT;",
         ),
+        up(
+            79,
+            "widget_command_receipts",
+            "CREATE TABLE widget_command_receipts (
+                command_id TEXT PRIMARY KEY NOT NULL,
+                task_id TEXT NOT NULL,
+                handled_at TEXT NOT NULL
+            );",
+        ),
     ];
 
     tauri::Builder::default()
@@ -890,6 +901,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(persistence::TransactionRegistry::default())
+        .manage(widget_navigation::WidgetNavigation::default())
         .invoke_handler(tauri::generate_handler![
             set_menu_count,
             set_tray_menu,
@@ -904,7 +916,13 @@ pub fn run() {
             persistence::finish_database_transaction,
             persistence::database_transaction_status,
             save_text_file,
-            copy_attachment
+            copy_attachment,
+            widget::widget_status,
+            widget::publish_widget_snapshot,
+            widget::read_widget_commands,
+            widget::acknowledge_widget_command,
+            widget::reload_widget_timeline,
+            widget_navigation::take_widget_links
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
@@ -951,6 +969,14 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                widget_navigation::receive(app, urls);
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

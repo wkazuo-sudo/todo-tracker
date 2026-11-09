@@ -13,7 +13,8 @@ import {
   type RepeatRule,
 } from "./logic";
 import type { NewTaskInput, SaveMeetingInput } from "./db";
-import { BulletList, DueChips, linesFromText, type Line } from "./ui";
+import { BulletList, linesFromText, type Line } from "./ui";
+import "./meeting-sheet.css";
 
 const DRAFT_KEY = "todo-tracker.meeting-draft";
 
@@ -103,6 +104,23 @@ function blankRow(): Row {
     clockTime: "",
     sourceLine: "",
   };
+}
+
+function hasTaskRowContent(row: Row): boolean {
+  return Boolean(
+    row.title.trim() || row.requesterId || row.dueOn || row.keptWords || row.dateTouched || row.evening ||
+      row.repeatRule || row.indent > 0 || row.owner === "theirs" || row.durationMin || row.doOn ||
+      row.clockTime.trim() || row.sourceLine.trim(),
+  );
+}
+
+function normalizeTaskRows(rows: Row[], preserveBlankKey?: string): Row[] {
+  const blank = rows.find((row) => row.key === preserveBlankKey && !hasTaskRowContent(row)) ??
+    rows.find((row) => !hasTaskRowContent(row)) ??
+    blankRow();
+  const normalized = rows.filter((row) => hasTaskRowContent(row) || row.key === blank.key);
+  if (!normalized.some((row) => row.key === blank.key)) normalized.push(blank);
+  return normalized;
 }
 
 function readDraft(storageKey = DRAFT_KEY): Draft | null {
@@ -214,7 +232,7 @@ function initialDraft(
   const saved = readDraft(draftStorageKey);
   if (presetEvent) {
     if (saved && hasContent(saved, preset?.name ?? "")) {
-      return { draft: { ...saved, rows: saved.rows.length > 0 ? saved.rows : [blankRow(), blankRow()] }, restored: true };
+      return { draft: { ...saved, rows: normalizeTaskRows(saved.rows) }, restored: true };
     }
     return {
       restored: false,
@@ -234,7 +252,7 @@ function initialDraft(
         spanEnd: "",
         sourceUrl: presetEvent.url,
         calendarUid: presetEvent.id,
-        rows: [blankRow(), blankRow()],
+        rows: [blankRow()],
         markDoneIds: [],
         guestIds: [],
         decisionText: "",
@@ -242,7 +260,7 @@ function initialDraft(
     };
   }
   if (saved && hasContent(saved, preset?.name ?? "")) {
-    const rows = saved.rows.length > 0 ? saved.rows : [blankRow(), blankRow()];
+    const rows = normalizeTaskRows(saved.rows);
     return { draft: { ...saved, rows }, restored: true };
   }
   let meetingDate = presetDate || todayISO();
@@ -265,7 +283,7 @@ function initialDraft(
       spanEnd: "",
       sourceUrl: "",
       calendarUid: "",
-      rows: [blankRow(), blankRow()],
+      rows: [blankRow()],
       markDoneIds: [],
       guestIds: [],
       decisionText: "",
@@ -296,7 +314,6 @@ export function MeetingSheet({
   const [recoveredFor, setRecoveredFor] = useState(
     starting.restored ? { calendarUid: starting.draft.calendarUid, meetingDate: starting.draft.meetingDate } : null,
   );
-  const [showRest, setShowRest] = useState(starting.restored || Boolean(presetEvent));
   const [speechNote, setSpeechNote] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
@@ -305,6 +322,7 @@ export function MeetingSheet({
   const savedRef = useRef(false);
   const savingRef = useRef(false);
   const titleRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const focusTaskKeyRef = useRef<string | null>(null);
   const presetName = data.people.find((person) => person.id === presetPersonId)?.name ?? "";
 
   useEffect(() => {
@@ -329,6 +347,15 @@ export function MeetingSheet({
       topicLines: owned.map((bullet) => ({ key: bullet.id, text: bullet.body, indent: bullet.indent })),
     });
   }, [data.bullets, data.meetings, draft.personId, draft.topicLines]);
+
+  useEffect(() => {
+    const key = focusTaskKeyRef.current;
+    if (!key) return;
+    const index = draft.rows.findIndex((row) => row.key === key);
+    if (index < 0) return;
+    titleRefs.current[index]?.focus();
+    focusTaskKeyRef.current = null;
+  }, [draft.rows]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -363,10 +390,30 @@ export function MeetingSheet({
   }
 
   function setRow(key: string, partial: Partial<Row>) {
-    setDraft((current) => ({
-      ...current,
-      rows: current.rows.map((row) => (row.key === key ? { ...row, ...partial } : row)),
-    }));
+    setDraft((current) => {
+      const rows = current.rows.map((row) => (row.key === key ? { ...row, ...partial } : row));
+      return { ...current, rows: normalizeTaskRows(rows, key) };
+    });
+  }
+
+  function focusNewTask() {
+    const blankIndex = draft.rows.findIndex((row) => !hasTaskRowContent(row));
+    const index = blankIndex >= 0 ? blankIndex : draft.rows.length;
+    if (blankIndex < 0) setDraft((current) => ({ ...current, rows: normalizeTaskRows(current.rows) }));
+    window.setTimeout(() => titleRefs.current[index]?.focus(), 0);
+  }
+
+  function addTaskFromNote(line: Line) {
+    const normalized = normalizeTaskRows(draft.rows);
+    const targetIndex = normalized.findIndex((row) => !hasTaskRowContent(row));
+    const targetKey = normalized[targetIndex]?.key;
+    if (targetKey) focusTaskKeyRef.current = targetKey;
+    setDraft((current) => {
+      const rows = normalizeTaskRows(current.rows);
+      const index = rows.findIndex((row) => row.key === targetKey);
+      if (index >= 0) rows[index] = { ...rows[index], title: line.text.trim(), indent: line.indent, sourceLine: line.text.trim() };
+      return { ...current, rows: normalizeTaskRows(rows) };
+    });
   }
 
   function chooseDue(key: string, dueOn: string | null) {
@@ -475,7 +522,7 @@ export function MeetingSheet({
           questionLines: [{ key: crypto.randomUUID(), text: "", indent: 0 }],
           privateNote: "",
           decisionText: "",
-          rows: [blankRow(), blankRow()],
+          rows: [blankRow()],
           markDoneIds: [],
         };
         setDraft(cleared);
@@ -519,24 +566,38 @@ export function MeetingSheet({
     }
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
-    if (index === draft.rows.length - 1) {
-      patch({ rows: [...draft.rows, blankRow()] });
+    if (!hasTaskRowContent(draft.rows[index])) return;
+    let nextIndex = draft.rows.findIndex((row) => !hasTaskRowContent(row));
+    if (nextIndex < 0) {
+      nextIndex = draft.rows.length;
+      setDraft((current) => ({ ...current, rows: normalizeTaskRows(current.rows) }));
     }
-    window.setTimeout(() => titleRefs.current[index + 1]?.focus(), 0);
+    window.setTimeout(() => titleRefs.current[nextIndex]?.focus(), 0);
   }
 
+
   return (
-    <div className="overlay" onMouseDown={() => { if (!busy && !savingRef.current) onClose(); }}>
+    <div
+      className="meeting-composer-overlay"
+      onMouseDown={() => {
+        if (!busy && !savingRef.current) onClose();
+      }}
+    >
       <form
-        className="sheet"
+        className="meeting-composer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="meeting-composer-title"
         inert={busy}
         aria-busy={busy}
         onMouseDown={(event) => event.stopPropagation()}
         onSubmit={(event) => void save(event)}
         onKeyDown={(event) => {
+          if (event.defaultPrevented) return;
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault();
             void save();
+            return;
           }
           if (event.key !== "Tab") return;
           const root = event.currentTarget;
@@ -555,483 +616,549 @@ export function MeetingSheet({
           }
         }}
       >
-        <h2>{draft.calendarUid ? draft.title || "Meeting notes" : "New meeting"}</h2>
-        {agenda.length > 0 && (
-          <div className="field">
-            <span>Meetings this week</span>
-            <div className="chips">
-              {agenda.map((event) => (
-                <button
-                  key={`${event.id}-${event.date}`}
-                  type="button"
-                  className={draft.calendarUid === event.id && draft.meetingDate === event.date ? "chip selected" : "chip"}
-                  onClick={() => {
-                    if (recoveredFor && (event.id !== recoveredFor.calendarUid || event.date !== recoveredFor.meetingDate)) {
-                      setError("Finish saving or discard the recovered meeting draft before choosing another calendar event.");
-                      return;
-                    }
-                    setError("");
-                    const person = personInTitle(data.people, event.title);
-                    patch({
-                      title: event.title,
-                      meetingDate: event.date,
-                      sourceUrl: event.url,
-                      calendarUid: event.id,
-                      ...(person ? { personText: person.name, personId: person.id } : {}),
-                    });
-                    setShowRest(true);
-                  }}
-                >
-                  {event.time ? `${event.time} ` : ""}
-                  {event.date === today ? "Today" : formatDay(event.date, today)} · {event.title}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {restored && <p className="hint">Picking up where you left off.</p>}
-        {recoveredFor && presetEvent && (recoveredFor.calendarUid !== presetEvent.id || recoveredFor.meetingDate !== presetEvent.date) && (
-          <p className="hint">A saved draft is open. This calendar event stays unselected until you save or discard that draft.</p>
-        )}
-        {!showRest && (
-          <p className="hint">
-            Start with the note. The person, the date, and the tasks appear when you leave it.{" "}
-            <button type="button" className="text-button" onClick={() => setShowRest(true)}>
-              Show them now
-            </button>
-          </p>
-        )}
-        {showRest && (
-        <>
-        <label className="field">
-          <span>Person</span>
-          <input
-            value={draft.personText}
-            placeholder="Who did you meet?"
-            autoComplete="off"
-            autoFocus={!draft.personId}
-            aria-expanded={suggesting}
-            onFocus={() => setSuggesting(true)}
-            onBlur={() => window.setTimeout(() => setSuggesting(false), 120)}
-            onChange={(event) => {
-              const value = event.target.value;
-              const match = findPersonByName(data.people, value);
-              patch({ personText: value, personId: match?.id ?? null });
-              setSuggesting(true);
-            }}
-          />
-          {suggesting && (matches.length > 0 || (query && !exact)) && (
-            <div className="suggestions">
-              {matches.map((person) => (
-                <button
-                  key={person.id}
-                  type="button"
-                  className="suggestion"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    patch({ personText: person.name, personId: person.id });
-                    setSuggesting(false);
-                  }}
-                >
-                  {person.name}
-                  {person.id === lastId ? " · last time" : ""}
-                </button>
-              ))}
-              {query && !exact && (
-                <button
-                  type="button"
-                  className="suggestion"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    patch({ personText: draft.personText.trim(), personId: null });
-                    setSuggesting(false);
-                  }}
-                >
-                  Add {draft.personText.trim()}
-                </button>
-              )}
-            </div>
+        <header className="meeting-composer__header">
+          <h2 id="meeting-composer-title">Log a meeting</h2>
+          <button
+            type="button"
+            className="meeting-composer__close"
+            aria-label="Close meeting composer"
+            disabled={busy || savingRef.current}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="meeting-composer__body">
+          {restored && <p className="meeting-composer__notice">Recovered draft · your notes and tasks are still here.</p>}
+          {recoveredFor && presetEvent && (recoveredFor.calendarUid !== presetEvent.id || recoveredFor.meetingDate !== presetEvent.date) && (
+            <p className="meeting-composer__notice">
+              A saved meeting draft is open. Save or discard it before switching to another calendar event.
+            </p>
           )}
-        </label>
 
-        <label className="field">
-          <span>Meeting</span>
-          <input
-            value={draft.title}
-            placeholder="What did you meet about?"
-            autoFocus={Boolean(draft.personId)}
-            onChange={(event) => patch({ title: event.target.value })}
-          />
-        </label>
-
-        <label className="field">
-          <span>Date</span>
-          <input
-            type="date"
-            value={draft.meetingDate}
-            onChange={(event) => patch({ meetingDate: event.target.value })}
-          />
-        </label>
-
-        {data.templates.length > 0 && (
-          <label className="field">
-            <span>Template</span>
-            <select
-              value=""
-              onChange={(event) => {
-                const template = data.templates.find((item) => item.id === event.target.value);
-                if (!template) return;
-                patch({
-                  rows: template.lines.map((line) => ({ ...blankRow(), title: line })),
-                });
-              }}
-            >
-              <option value="">Use a template</option>
-              {data.templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-            <div className="chips">
-              {data.templates.map((template) => (
-                <button key={template.id} type="button" className="text-button" onClick={() => onDeleteTemplate(template.id)}>
-                  Remove {template.name}
-                </button>
-              ))}
-            </div>
-          </label>
-        )}
-
-        {data.people.length > 1 && (
-          <fieldset className="field">
-            <legend>Also there</legend>
-            <div className="chips">
-              {data.people
-                .filter((person) => person.id !== resolved?.id)
-                .map((person) => (
-                  <button
-                    key={person.id}
-                    type="button"
-                    className={draft.guestIds.includes(person.id) ? "chip selected" : "chip"}
-                    onClick={() =>
-                      patch({
-                        guestIds: draft.guestIds.includes(person.id)
-                          ? draft.guestIds.filter((id) => id !== person.id)
-                          : [...draft.guestIds, person.id],
-                      })
-                    }
-                  >
-                    {person.name}
-                  </button>
-                ))}
-            </div>
-          </fieldset>
-        )}
-        </>
-        )}
-
-        <div
-          className="field"
-          onBlur={(event) => {
-            const next = event.relatedTarget as Node | null;
-            if (!next || !event.currentTarget.contains(next)) setShowRest(true);
-          }}
-        >
-          <span className="section-label">Notes</span>
-          <p className="hint">Notes stay notes. Tab indents a line. Shift-Tab pulls it back. Enter adds the next line.</p>
-          <BulletList
-            label="Meeting notes"
-            placeholder="A note from the meeting"
-            lines={draft.noteLines}
-            onChange={(noteLines) => patch({ noteLines })}
-          />
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => {
-              const Speech = (window as unknown as { webkitSpeechRecognition?: new () => { start: () => void; onresult: ((event: { results: { 0: { 0: { transcript: string } } } }) => void) | null } }).webkitSpeechRecognition;
-              if (!Speech) {
-                setSpeechNote("This Mac did not offer dictation here. Type the note, or turn Dictation on in Keyboard settings.");
-                return;
-              }
-              setSpeechNote("Listening…");
-              const heard = new Speech();
-              heard.onresult = (event) => {
-                const text = event.results[0][0].transcript;
-                patch({ noteLines: [...draft.noteLines, { key: crypto.randomUUID(), text, indent: 0 }] });
-              };
-              heard.start();
-            }}
-          >
-            Speak a note
-          </button>
-          {speechNote && <p className="hint">{speechNote}</p>}
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => {
-              const line = [...draft.noteLines].reverse().find((item) => item.text.trim());
-              if (!line) return;
-              patch({
-                rows: [...draft.rows, { ...blankRow(), title: line.text.trim(), indent: line.indent, sourceLine: line.text.trim() }],
-              });
-              setShowRest(true);
-            }}
-          >
-            Make the last note a task
-          </button>
-        </div>
-
-        {openTasks.length > 0 && (
-          <section className="open-list">
-            <h3 className="section-label">Still open with {resolved?.name}</h3>
-            <p className="hint">Mark anything that is finished, then add what was asked today.</p>
-            {openTasks.map((task) => (
-              <label key={task.id} className="open-item">
-                <input
-                  type="checkbox"
-                  checked={draft.markDoneIds.includes(task.id)}
-                  onChange={(event) => {
-                    patch({
-                      markDoneIds: event.target.checked
-                        ? [...draft.markDoneIds, task.id]
-                        : draft.markDoneIds.filter((id) => id !== task.id),
-                    });
-                  }}
-                />
-                <span>
-                  {task.title}
-                  <span className="ask">
-                    {task.dueOn ? `Due ${formatDay(task.dueOn, today).toLowerCase()}` : "No due date"}
-                  </span>
-                </span>
-              </label>
-            ))}
-          </section>
-        )}
-
-        <details className="more-block">
-          <summary>More about this meeting</summary>
-          <label className="field">
-            <span>Decisions</span>
-            <textarea
-              value={draft.decisionText}
-              placeholder="One decision per line. Add why on the next line if you want."
-              onChange={(event) => patch({ decisionText: event.target.value })}
-            />
-          </label>
-          <div className="field">
-            <span className="section-label">Topics to talk about</span>
-            <BulletList label="Topics" placeholder="A topic, not a task" lines={draft.topicLines} onChange={(topicLines) => patch({ topicLines })} />
-          </div>
-          <div className="field">
-            <span className="section-label">Questions still open</span>
-            <BulletList label="Questions" placeholder="Something the meeting did not settle" lines={draft.questionLines} onChange={(questionLines) => patch({ questionLines })} />
-          </div>
-          <label className="field">
-            <span>Private note</span>
-            <textarea value={draft.privateNote} placeholder="Only for you. Left out of the brief and of files you save." onChange={(event) => patch({ privateNote: event.target.value })} />
-          </label>
-          <label className="field">
-            <span>Next meeting date</span>
-            {draft.nextOn ? (
-              <input type="date" value={draft.nextOn} onChange={(event) => patch({ nextOn: event.target.value })} />
-            ) : (
-              <button type="button" className="chip" onClick={() => patch({ nextOn: addDays(today, 7) })}>
-                Set the next meeting
-              </button>
-            )}
-          </label>
-          <label className="field">
-            <span>What the next meeting should cover</span>
-            <input value={draft.nextFocus} onChange={(event) => patch({ nextFocus: event.target.value })} />
-          </label>
-          <label className="field">
-            <span>This meeting covers until</span>
-            {draft.spanEnd ? (
-              <input type="date" value={draft.spanEnd} onChange={(event) => patch({ spanEnd: event.target.value })} />
-            ) : (
-              <button type="button" className="chip" onClick={() => patch({ spanEnd: addDays(draft.meetingDate || today, 1) })}>
-                It covers more than one day
-              </button>
-            )}
-          </label>
-          <label className="field">
-            <span>Link back to the mail or page</span>
-            <input value={draft.sourceUrl} placeholder="https://" onChange={(event) => patch({ sourceUrl: event.target.value })} />
-          </label>
-        </details>
-
-        <h3 className="section-label">Tasks from this meeting</h3>
-        <div className="chips drop-days">
-          {Array.from({ length: 7 }, (_, offset) => addDays(today, offset)).map((date) => (
-            <button
-              key={date}
-              type="button"
-              className={draft.meetingDate === date ? "chip selected" : "chip"}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                const key = event.dataTransfer.getData("text/task-key");
-                if (key) setRow(key, { dueOn: date, dateTouched: true });
-              }}
-              onClick={() => patch({ meetingDate: date })}
-            >
-              {date === today ? "Today" : formatDay(date, today)}
-            </button>
-          ))}
-        </div>
-        {draft.rows.map((row, index) => {
-          return (
-            <div className="task-draft" key={row.key}>
-              <div className="bullet-row" style={{ paddingLeft: row.indent * 22 }}>
-              <span className="bullet-mark" aria-hidden="true">•</span>
+          <section className="meeting-composer__metadata" aria-label="Meeting details">
+            <label className="meeting-composer__field meeting-composer__person">
+              <span>With</span>
               <input
-                type="text"
-                placeholder="What needs doing?"
-                value={row.title}
-                ref={(node) => {
-                  titleRefs.current[index] = node;
+                value={draft.personText}
+                placeholder="Person's name"
+                autoComplete="off"
+                autoFocus={!draft.personId}
+                aria-expanded={suggesting}
+                onFocus={() => setSuggesting(true)}
+                onBlur={() => window.setTimeout(() => setSuggesting(false), 120)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const match = findPersonByName(data.people, value);
+                  patch({ personText: value, personId: match?.id ?? null });
+                  setSuggesting(true);
                 }}
-                onChange={(event) => setRow(row.key, { title: event.target.value, keptWords: false })}
-                onKeyDown={(event) => onTaskKey(event, index)}
               />
+              {suggesting && (matches.length > 0 || (query && !exact)) && (
+                <div className="meeting-composer__suggestions">
+                  {matches.map((person) => (
+                    <button
+                      key={person.id}
+                      type="button"
+                      className="meeting-composer__suggestion"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        patch({ personText: person.name, personId: person.id });
+                        setSuggesting(false);
+                      }}
+                    >
+                      {person.name}
+                      {person.id === lastId ? <span>Last meeting</span> : null}
+                    </button>
+                  ))}
+                  {query && !exact && (
+                    <button
+                      type="button"
+                      className="meeting-composer__suggestion"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        patch({ personText: draft.personText.trim(), personId: null });
+                        setSuggesting(false);
+                      }}
+                    >
+                      Add {draft.personText.trim()}
+                    </button>
+                  )}
+                </div>
+              )}
+            </label>
+
+            <label className="meeting-composer__field meeting-composer__meeting-title">
+              <span>Meeting</span>
+              <input
+                value={draft.title}
+                placeholder="What was the meeting about?"
+                onChange={(event) => patch({ title: event.target.value })}
+              />
+            </label>
+
+            <label className="meeting-composer__field meeting-composer__date">
+              <span>Date</span>
+              <input
+                type="date"
+                value={draft.meetingDate}
+                onChange={(event) => patch({ meetingDate: event.target.value })}
+              />
+            </label>
+          </section>
+
+          <section className="meeting-composer__notes" aria-labelledby="meeting-notes-title" aria-describedby="meeting-notes-help">
+            <div className="meeting-composer__section-heading">
+              <h3 id="meeting-notes-title">Notes</h3>
+            </div>
+            <span className="sr-only" id="meeting-notes-help">Enter adds a bullet. Tab indents it. Shift-Tab pulls it back.</span>
+            <div className="meeting-composer__notes-editor">
+              <BulletList
+                label="Meeting notes"
+                placeholder="Start writing…"
+                lines={draft.noteLines}
+                multiline
+                onChange={(noteLines) => patch({ noteLines })}
+              />
+            </div>
+            <div className="meeting-composer__note-toolbar">
+              <button
+                type="button"
+                className="meeting-composer__quiet-button"
+                onClick={() => {
+                  const Speech = (window as unknown as {
+                    webkitSpeechRecognition?: new () => {
+                      start: () => void;
+                      onresult: ((event: { results: { 0: { 0: { transcript: string } } } }) => void) | null;
+                    };
+                  }).webkitSpeechRecognition;
+                  if (!Speech) {
+                    setSpeechNote("Dictation is not available here. Type your note, or turn on macOS Dictation.");
+                    return;
+                  }
+                  setSpeechNote("Listening…");
+                  const heard = new Speech();
+                  heard.onresult = (event) => {
+                    const text = event.results[0][0].transcript;
+                    patch({ noteLines: [...draft.noteLines, { key: crypto.randomUUID(), text, indent: 0 }] });
+                  };
+                  heard.start();
+                }}
+              >
+                Speak a note
+              </button>
+              <button
+                type="button"
+                className="meeting-composer__quiet-button"
+                onClick={() => {
+                  const line = [...draft.noteLines].reverse().find((item) => item.text.trim());
+                  if (line) addTaskFromNote(line);
+                }}
+              >
+                Add last note to tasks
+              </button>
+              {speechNote && <span className="meeting-composer__speech-status" role="status">{speechNote}</span>}
+            </div>
+          </section>
+
+          {openTasks.length > 0 && (
+            <details className="meeting-composer__secondary">
+              <summary>
+                <span>Open tasks with {resolved?.name}</span>
+                <span>{openTasks.length} to review</span>
+              </summary>
+              <p className="meeting-composer__secondary-note">Check anything finished in this meeting.</p>
+              <div className="meeting-composer__open-tasks">
+                {openTasks.map((task) => (
+                  <label key={task.id} className="meeting-composer__open-task">
+                    <input
+                      type="checkbox"
+                      checked={draft.markDoneIds.includes(task.id)}
+                      onChange={(event) => {
+                        patch({
+                          markDoneIds: event.target.checked
+                            ? [...draft.markDoneIds, task.id]
+                            : draft.markDoneIds.filter((id) => id !== task.id),
+                        });
+                      }}
+                    />
+                    <span>{task.title}</span>
+                    <small>{task.dueOn ? "Due " + formatDay(task.dueOn, today).toLowerCase() : "No due date"}</small>
+                  </label>
+                ))}
               </div>
-              {(() => {
+            </details>
+          )}
+
+          <section className="meeting-composer__tasks" aria-labelledby="meeting-tasks-title">
+            <div className="meeting-composer__section-heading">
+              <h3 id="meeting-tasks-title">Tasks</h3>
+              <button
+                type="button"
+                className="meeting-composer__add-task"
+                onClick={focusNewTask}
+              >
+                <span aria-hidden="true">+</span> Add task
+              </button>
+            </div>
+            <div className="meeting-composer__task-list">
+              {draft.rows.map((row, index) => {
                 const reading = !row.keptWords && !row.dateTouched ? readDateInTitle(row.title, today) : null;
-                if (!reading) return null;
+                const hasAdvanced = hasTaskRowContent(row);
                 return (
-                  <p
-                    className="hint"
-                    draggable
+                  <div
+                    className="meeting-composer__task-row"
+                    key={row.key}
+                    draggable={Boolean(row.title.trim())}
                     onDragStart={(event) => {
-                      event.dataTransfer.setData("text/due-preview", reading.date);
+                      if (!row.title.trim()) return;
+                      event.dataTransfer.setData("text/due-preview", reading?.date ?? "");
                       event.dataTransfer.setData("text/task-key", row.key);
                     }}
                   >
-                    Read as due {formatDay(reading.date, today)}
-                    {reading.evening ? ", this evening" : ""}. Drag this line onto a day.{" "}
-                    <button type="button" className="text-button" onClick={() => setRow(row.key, { keptWords: true })}>
-                      Keep the words
-                    </button>
-                  </p>
+                    <div className="meeting-composer__task-main">
+                      <span className="meeting-composer__task-bullet" aria-hidden="true">•</span>
+                      <input
+                        className="meeting-composer__task-title"
+                        type="text"
+                        placeholder="What needs doing?"
+                        aria-label={"Task " + (index + 1) + " title"}
+                        value={row.title}
+                        ref={(node) => {
+                          titleRefs.current[index] = node;
+                        }}
+                        onChange={(event) => setRow(row.key, { title: event.target.value, keptWords: false })}
+                        onKeyDown={(event) => onTaskKey(event, index)}
+                      />
+                      <label className="meeting-composer__task-owner">
+                        <span className="sr-only">Owner</span>
+                        <select
+                          aria-label={"Owner for task " + (index + 1)}
+                          value={row.owner}
+                          onChange={(event) => setRow(row.key, { owner: event.target.value === "theirs" ? "theirs" : "mine" })}
+                        >
+                          <option value="mine">Mine</option>
+                          <option value="theirs">Waiting</option>
+                        </select>
+                      </label>
+                      <label className="meeting-composer__task-due">
+                        <span className="sr-only">Due date</span>
+                        <input
+                          type="date"
+                          aria-label={"Due date for task " + (index + 1)}
+                          value={row.dueOn ?? reading?.date ?? ""}
+                          onChange={(event) => chooseDue(row.key, event.target.value || null)}
+                        />
+                      </label>
+                    </div>
+
+                    {reading && (
+                      <p className="meeting-composer__date-reading">
+                        Due date found in the title: {formatDay(reading.date, today)}
+                        {reading.evening ? " · evening" : ""}
+                        <button
+                          type="button"
+                          className="meeting-composer__quiet-button"
+                          onClick={() => setRow(row.key, { keptWords: true })}
+                        >
+                          Keep wording
+                        </button>
+                      </p>
+                    )}
+
+                    {hasAdvanced && (
+                      <details className="meeting-composer__task-options">
+                        <summary>More options</summary>
+                        <div className="meeting-composer__task-options-grid">
+                          <label className="meeting-composer__field">
+                            <span>Asked by</span>
+                            <select
+                              value={row.requesterId}
+                              onChange={(event) => setRow(row.key, { requesterId: event.target.value })}
+                            >
+                              <option value="">{resolved ? resolved.name : "Person in this meeting"}</option>
+                              {data.people
+                                .filter((person) => person.id !== resolved?.id)
+                                .map((person) => (
+                                  <option key={person.id} value={person.id}>{person.name}</option>
+                                ))}
+                            </select>
+                          </label>
+                          <label className="meeting-composer__field">
+                            <span>Day to do it</span>
+                            <input
+                              type="date"
+                              value={row.doOn ?? ""}
+                              onChange={(event) => setRow(row.key, { doOn: event.target.value || null })}
+                            />
+                          </label>
+                          <label className="meeting-composer__field">
+                            <span>Time</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder="17:00"
+                              value={row.clockTime}
+                              onChange={(event) => setRow(row.key, { clockTime: event.target.value })}
+                            />
+                          </label>
+                          <label className="meeting-composer__field">
+                            <span>Time needed</span>
+                            <select
+                              value={String(row.durationMin)}
+                              onChange={(event) => setRow(row.key, { durationMin: Number(event.target.value) })}
+                            >
+                              <option value="0">No estimate</option>
+                              <option value="15">15 minutes</option>
+                              <option value="30">30 minutes</option>
+                              <option value="60">1 hour</option>
+                            </select>
+                          </label>
+                          <label className="meeting-composer__field">
+                            <span>Repeats</span>
+                            <select
+                              value={row.repeatRule ?? ""}
+                              onChange={(event) => setRow(row.key, { repeatRule: (event.target.value || null) as RepeatRule })}
+                            >
+                              <option value="">Once</option>
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                              <option value="monthly">Monthly</option>
+                            </select>
+                          </label>
+                          <label className="meeting-composer__field">
+                            <span>Indent</span>
+                            <select
+                              value={String(row.indent)}
+                              onChange={(event) => setRow(row.key, { indent: Number(event.target.value) })}
+                            >
+                              {Array.from({ length: 7 }, (_, level) => (
+                                <option key={level} value={String(level)}>{level === 0 ? "Top level" : "Subtask " + level}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        {row.sourceLine && (
+                          <p className="meeting-composer__source-line">From note: {row.sourceLine}</p>
+                        )}
+                      </details>
+                    )}
+                  </div>
                 );
-              })()}
-              <div className="who-row">
-                <label>
-                  <span className="sr-only">Who asked</span>
-                  <select
-                    aria-label="Who asked"
-                    value={row.requesterId}
-                    onChange={(event) => setRow(row.key, { requesterId: event.target.value })}
+              })}
+            </div>
+          </section>
+
+          <details className="meeting-composer__secondary">
+            <summary>
+              <span>Meeting details and options</span>
+              <span>Calendar, attendees, topics, decisions</span>
+            </summary>
+            <div className="meeting-composer__secondary-content">
+              {agenda.length > 0 && (
+                <div className="meeting-composer__detail-group">
+                  <h4>Calendar meetings this week</h4>
+                  <div className="meeting-composer__event-list">
+                    {agenda.map((event) => {
+                      const selected = draft.calendarUid === event.id && draft.meetingDate === event.date;
+                      const blocked = Boolean(recoveredFor && (event.id !== recoveredFor.calendarUid || event.date !== recoveredFor.meetingDate));
+                      return (
+                        <button
+                          key={event.id + "-" + event.date}
+                          type="button"
+                          className={selected ? "meeting-composer__event is-selected" : "meeting-composer__event"}
+                          disabled={blocked}
+                          aria-pressed={selected}
+                          title={blocked ? "Save or discard the recovered draft before switching events" : undefined}
+                          onClick={() => {
+                            if (blocked) return;
+                            const person = personInTitle(data.people, event.title);
+                            patch({
+                              title: event.title,
+                              meetingDate: event.date,
+                              sourceUrl: event.url,
+                              calendarUid: event.id,
+                              ...(person ? { personText: person.name, personId: person.id } : {}),
+                            });
+                          }}
+                        >
+                          <span className="meeting-composer__event-date">
+                            {event.date === today ? "Today" : formatDay(event.date, today)}
+                            {event.time ? " · " + event.time : ""}
+                          </span>
+                          <span className="meeting-composer__event-title">{event.title}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {data.templates.length > 0 && (
+                <div className="meeting-composer__detail-group">
+                  <h4>Task templates</h4>
+                  <label className="meeting-composer__field">
+                    <span>Use a template</span>
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        const template = data.templates.find((item) => item.id === event.target.value);
+                        if (template) patch({ rows: normalizeTaskRows(template.lines.map((line) => ({ ...blankRow(), title: line }))) });
+                      }}
+                    >
+                      <option value="">Choose a template</option>
+                      {data.templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                    </select>
+                  </label>
+                  <div className="meeting-composer__template-list">
+                    {data.templates.map((template) => (
+                      <button key={template.id} type="button" onClick={() => onDeleteTemplate(template.id)}>
+                        Remove {template.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="meeting-composer__detail-group">
+                <h4>Save task template</h4>
+                <div className="meeting-composer__template-save">
+                  <input
+                    aria-label="Template name"
+                    placeholder="Name this template"
+                    value={templateName}
+                    onChange={(event) => setTemplateName(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveTemplate(templateName, draft.rows.map((row) => row.title).filter((title) => title.trim()));
+                      setTemplateName("");
+                    }}
                   >
-                    <option value="">{resolved ? resolved.name : "Person in this meeting"}</option>
+                    Save template
+                  </button>
+                </div>
+              </div>
+
+              {data.people.length > 1 && (
+                <fieldset className="meeting-composer__detail-group meeting-composer__attendees">
+                  <legend>Also there</legend>
+                  <div className="meeting-composer__people-list">
                     {data.people
                       .filter((person) => person.id !== resolved?.id)
                       .map((person) => (
-                        <option key={person.id} value={person.id}>
-                          {person.name}
-                        </option>
+                        <label key={person.id}>
+                          <input
+                            type="checkbox"
+                            checked={draft.guestIds.includes(person.id)}
+                            onChange={(event) => patch({
+                              guestIds: event.target.checked
+                                ? [...draft.guestIds, person.id]
+                                : draft.guestIds.filter((id) => id !== person.id),
+                            })}
+                          />
+                          <span>{person.name}</span>
+                        </label>
                       ))}
-                  </select>
-                </label>
-                <DueChips dueOn={row.dueOn} today={today} index={index} onChoose={(dueOn) => chooseDue(row.key, dueOn)} />
-                <div className="chips">
-                  {row.doOn ? (
-                    <label>
-                      <span className="sr-only">Do this on</span>
-                      <input
-                        type="date"
-                        aria-label={`Do task ${index + 1} on`}
-                        value={row.doOn}
-                        onChange={(event) => setRow(row.key, { doOn: event.target.value || null })}
-                      />
-                    </label>
-                  ) : (
-                    <button type="button" className="chip" onClick={() => setRow(row.key, { doOn: today })}>
-                      Day I'll do it
+                  </div>
+                </fieldset>
+              )}
+
+              <div className="meeting-composer__detail-group">
+                <h4>Meeting date shortcuts</h4>
+                <p className="meeting-composer__secondary-note">
+                  Click a day to set the meeting date, or drag a task here to set its due date.
+                </p>
+                <div className="meeting-composer__date-targets">
+                  {Array.from({ length: 7 }, (_, offset) => addDays(today, offset)).map((date) => (
+                    <button
+                      key={date}
+                      type="button"
+                      className={draft.meetingDate === date ? "meeting-composer__date-target is-selected" : "meeting-composer__date-target"}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        const key = event.dataTransfer.getData("text/task-key");
+                        if (key) setRow(key, { dueOn: date, dateTouched: true });
+                      }}
+                      onClick={() => patch({ meetingDate: date })}
+                    >
+                      {date === today ? "Today" : formatDay(date, today)}
                     </button>
-                  )}
-                  <label>
-                    <span className="sr-only">Clock time</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="Clock, 17:00"
-                      aria-label={`Clock time for task ${index + 1}`}
-                      value={row.clockTime}
-                      onChange={(event) => setRow(row.key, { clockTime: event.target.value })}
-                    />
-                  </label>
-                  <select
-                    aria-label={`Who does task ${index + 1}`}
-                    value={row.owner}
-                    onChange={(event) => setRow(row.key, { owner: event.target.value === "theirs" ? "theirs" : "mine" })}
-                  >
-                    <option value="mine">Mine to do</option>
-                    <option value="theirs">Theirs to do</option>
-                  </select>
-                  <select
-                    aria-label={`How long for task ${index + 1}`}
-                    value={String(row.durationMin)}
-                    onChange={(event) => setRow(row.key, { durationMin: Number(event.target.value) })}
-                  >
-                    <option value="0">No length</option>
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                    <option value="60">1 hour</option>
-                  </select>
-                  <select
-                    aria-label={`Repeats for task ${index + 1}`}
-                    value={row.repeatRule ?? ""}
-                    onChange={(event) => setRow(row.key, { repeatRule: (event.target.value || null) as RepeatRule })}
-                  >
-                    <option value="">Once</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
+                  ))}
                 </div>
               </div>
-            </div>
-          );
-        })}
 
-        <div className="inline-form">
-          <input
-            aria-label="Template name"
-            placeholder="Save these tasks as a template"
-            value={templateName}
-            onChange={(event) => setTemplateName(event.target.value)}
-          />
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => {
-              onSaveTemplate(
-                templateName,
-                draft.rows.map((row) => row.title),
-              );
-              setTemplateName("");
-            }}
-          >
-            Save template
-          </button>
+              <label className="meeting-composer__field">
+                <span>Decisions</span>
+                <textarea
+                  value={draft.decisionText}
+                  placeholder="One decision per line. Add “Why:” on the next line if useful."
+                  onChange={(event) => patch({ decisionText: event.target.value })}
+                />
+              </label>
+
+              <div className="meeting-composer__detail-group">
+                <h4>Topics to discuss</h4>
+                <BulletList label="Topics" placeholder="A topic, not a task" lines={draft.topicLines} onChange={(topicLines) => patch({ topicLines })} />
+              </div>
+
+              <div className="meeting-composer__detail-group">
+                <h4>Questions still open</h4>
+                <BulletList label="Questions" placeholder="Something the meeting did not settle" lines={draft.questionLines} onChange={(questionLines) => patch({ questionLines })} />
+              </div>
+
+              <label className="meeting-composer__field">
+                <span>Private note</span>
+                <textarea value={draft.privateNote} placeholder="Only for you. Excluded from briefs and saved files." onChange={(event) => patch({ privateNote: event.target.value })} />
+              </label>
+
+              <div className="meeting-composer__metadata-more">
+                <label className="meeting-composer__field">
+                  <span>Next meeting</span>
+                  {draft.nextOn ? (
+                    <input type="date" value={draft.nextOn} onChange={(event) => patch({ nextOn: event.target.value })} />
+                  ) : (
+                    <button type="button" onClick={() => patch({ nextOn: addDays(today, 7) })}>Set a date</button>
+                  )}
+                </label>
+                <label className="meeting-composer__field">
+                  <span>Next meeting focus</span>
+                  <input value={draft.nextFocus} placeholder="What should it cover?" onChange={(event) => patch({ nextFocus: event.target.value })} />
+                </label>
+                <label className="meeting-composer__field">
+                  <span>This meeting covers until</span>
+                  {draft.spanEnd ? (
+                    <input type="date" value={draft.spanEnd} onChange={(event) => patch({ spanEnd: event.target.value })} />
+                  ) : (
+                    <button type="button" onClick={() => patch({ spanEnd: addDays(draft.meetingDate || today, 1) })}>Set an end date</button>
+                  )}
+                </label>
+                <label className="meeting-composer__field">
+                  <span>Source link</span>
+                  <input value={draft.sourceUrl} placeholder="https://" onChange={(event) => patch({ sourceUrl: event.target.value })} />
+                </label>
+              </div>
+            </div>
+          </details>
         </div>
-        {error && <p className="form-error">{error}</p>}
-        {recoveryKind && (
-          <button type="button" className="text-button" onClick={prepareNewSaveAttempt}>
-            Prepare new save attempt
-          </button>
-        )}
-        <div className="sheet-actions">
-          <button type="button" className="text-button" onClick={discard}>
-            Discard
-          </button>
-          <button type="submit" className="primary" disabled={busy}>
-            Save meeting
-          </button>
-        </div>
+
+        <footer className="meeting-composer__footer">
+          <div className="meeting-composer__footer-status">
+            {error && <p className="meeting-composer__error" role="alert">{error}</p>}
+            {recoveryKind && (
+              <button type="button" className="meeting-composer__recovery-action" onClick={prepareNewSaveAttempt}>
+                Prepare a new save attempt
+              </button>
+            )}
+            {!error && <span>⌘ Return to save</span>}
+          </div>
+          <div className="meeting-composer__actions">
+            <button type="button" className="meeting-composer__discard" disabled={busy} onClick={discard}>Discard</button>
+            <button type="submit" className="meeting-composer__save" disabled={busy || savingRef.current}>Save meeting</button>
+          </div>
+        </footer>
       </form>
     </div>
   );
